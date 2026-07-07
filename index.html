@@ -548,8 +548,8 @@ function renderLeave(){
       <div id="leavePrecheck"></div>
     </div>
     <div class="card">
-      <h2>Pending / Rejected Leave</h2>
-      <p class="sub">Choose a consultant, then tap View Status. Pending and rejected requests can be edited and re-submitted for admin review. Approved leave is archived for admin and will not appear here.</p>
+      <h2>My Leave Requests</h2>
+      <p class="sub">Choose a consultant, then tap View Status. Pending and rejected requests can be edited and re-submitted for admin review. Approved leave shows here too, for your reference, but can no longer be edited - contact admin if it needs to change.</p>
       <label>Consultant for leave status</label><select id="leaveStatusConsultant" onchange="onLeaveStatusConsultantChange()">${consultantOptionsSelected('', leaveStatusConsultantId || leaveDraft.consultantId, true)}</select>
       <div class="btns"><button id="refreshLeaveStatusBtn" class="btn secondary" onclick="loadUserLeaveStatus(true)">View / Refresh Status</button></div>
       <div id="userLeaveStatus"><p class="muted">Select a consultant above, then tap View / Refresh Status.</p></div>
@@ -611,8 +611,11 @@ async function loadUserLeaveStatus(userRequested=false){
 }
 function renderUserLeaveList(list, selectedName){
   const heading = `<p class="small muted">Selected consultant: <b>${esc(selectedName || '-')}</b></p>`;
-  if(!list || !list.length) return heading + '<p class="muted">No editable leave requests found for this consultant. Pending and rejected requests will appear here. Approved leave is archived in Admin.</p>';
-  return heading + list.map(l=>`<div class="teamblock"><b>${esc(l.StartDate)} to ${esc(l.EndDate)}</b> ${statusPill(l.Status)}<div class="small muted">Submitted: ${esc(l.SubmittedAt || '-')}</div>${l.UserNote?`<div class="small"><b>Your note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small dangerText"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="editUserLeave('${esc(l.LeaveID)}')">Edit</button></div></div>`).join('');
+  if(!list || !list.length) return heading + '<p class="muted">No leave requests found for this consultant.</p>';
+  return heading + list.map(l=>{
+    const editable = l.Status === 'Pending' || l.Status === 'Rejected';
+    return `<div class="teamblock"><b>${esc(l.StartDate)} to ${esc(l.EndDate)}</b> ${statusPill(l.Status)}<div class="small muted">Submitted: ${esc(l.SubmittedAt || '-')}</div>${l.UserNote?`<div class="small"><b>Your note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small dangerText"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}${editable?`<div class="btns"><button class="btn secondary" onclick="editUserLeave('${esc(l.LeaveID)}')">Edit</button></div>`:''}</div>`;
+  }).join('');
 }
 
 function editUserLeave(id){

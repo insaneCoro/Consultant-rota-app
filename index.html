@@ -94,11 +94,27 @@
     .pill.blue{background:var(--blue-bg);color:#1d4585}
 
     table{width:100%;border-collapse:collapse;font-size:13px}
+    .rotaTable{table-layout:fixed}
+    .rotaTable th:nth-child(1),.rotaTable td:nth-child(1){width:13%}
+    .rotaTable th:nth-child(2),.rotaTable td:nth-child(2){width:10%}
+    .rotaTable th:nth-child(3),.rotaTable td:nth-child(3){width:16%}
+    .rotaTable th:nth-child(4),.rotaTable td:nth-child(4){width:19%}
+    .rotaTable th:nth-child(5),.rotaTable td:nth-child(5){width:16%}
+    .rotaTable th:nth-child(6),.rotaTable td:nth-child(6){width:26%}
+    .rotaTable td{word-wrap:break-word}
     th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
     th{font-size:11px;color:#475569;background:#f8fafc;text-transform:uppercase;letter-spacing:.5px;font-weight:800}
     .scroll{overflow:auto}
     .week{border-left:4px solid var(--brand-2);position:relative}
     .teamblock{border:1px solid var(--line);border-radius:var(--radius-md);padding:10px 12px;margin:8px 0;background:#fbfbfd}
+    .teamHead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+    .teamSquare{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex:none;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+    .roleGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .roleTile{border-radius:12px;padding:10px 12px;background:var(--tileBg,#f8fafc);border:1px solid var(--tileBorder,var(--line))}
+    .roleTile.span2{grid-column:span 2}
+    .roleTileLabel{display:flex;align-items:center;gap:6px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800;margin-bottom:7px}
+    .roleTileLabel svg{width:14px;height:14px;opacity:.6;flex:none}
+    .roleTileNote{background:var(--warn-bg);border-color:transparent}
     .assignment{margin:6px 0;font-size:13px}
     .assignment b{display:inline-block;min-width:92px;color:var(--brand-2)}
 
@@ -184,6 +200,7 @@ function cleanColor(v, fallback='#64748b'){ const s=String(v||'').trim(); return
 function contrastColor(hex){ hex=cleanColor(hex).replace('#',''); const r=parseInt(hex.slice(0,2),16), g=parseInt(hex.slice(2,4),16), b=parseInt(hex.slice(4,6),16); return ((r*299+g*587+b*114)/1000)>160 ? '#111827' : '#ffffff'; }
 function chip(person){ const name=typeof person==='string'?person:(person.name||''); const color=cleanColor(typeof person==='string'?'#64748b':person.color); return `<span class="namechip" style="background:${esc(color)};color:${contrastColor(color)}">${esc(name)}</span>`; }
 function teamBadge(t){ const color=cleanColor(t.teamColor || t.ColorHex || '#0f172a','#0f172a'); return `<span class="teamName" style="background:${esc(color)};color:${contrastColor(color)}">${esc(t.teamName || t.TeamName)}</span>`; }
+function tintBg_(hex, alpha){ const c=cleanColor(hex).replace('#',''); const r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16); return `rgba(${r},${g},${b},${alpha})`; }
 function toast(msg){ const t=qs('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',3500); }
 
 function openModal_(innerHtml){
@@ -440,16 +457,31 @@ function renderRota(){
 function renderExportReadyBox(r){
   return `<div class="card"><h2>Export Ready</h2><p class="sub">${esc(r.message || '')}</p><div class="btns"><a class="btn blue" href="${esc(r.docxUrl)}" target="_blank" rel="noopener">Download DOCX</a><a class="btn secondary" href="${esc(r.docUrl)}" target="_blank" rel="noopener">Open Google Doc</a></div><p class="small muted">Mobile-friendly: tap the button above. The app no longer opens a pop-up automatically.</p></div>`;
 }
+const ROLE_ICONS_ = {
+  inpatient: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>',
+  opd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+  off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>'
+};
+function roleTile_(label, iconKey, arr, span2){
+  return `<div class="roleTile${span2?' span2':''}"><div class="roleTileLabel">${ROLE_ICONS_[iconKey]}<span>${esc(label)}</span></div><div>${list(arr)}</div></div>`;
+}
+function renderTeamRoleBlock_(t){
+  const color = cleanColor(t.teamColor, '#0f172a');
+  const leaveNames = (t.Leave||[]).map(p=>typeof p==='string'?p:p.name);
+  const inactiveNames = (t.Inactive||[]).map(p=>typeof p==='string'?p:p.name);
+  const notes = leaveNames.concat(inactiveNames.map(n=>n+' (inactive)'));
+  return `<div class="teamblock">
+    <div class="teamHead"><span class="teamSquare" style="background:${esc(color)};color:${contrastColor(color)}">${esc((t.teamName||t.TeamName||'').slice(0,4))}</span><span class="small muted">Team on duty this week</span></div>
+    <div class="roleGrid" style="--tileBg:${tintBg_(color,0.08)};--tileBorder:${tintBg_(color,0.22)}">
+      ${roleTile_('Inpatient', 'inpatient', t.Team)}
+      ${roleTile_('OPD', 'opd', t.OPD)}
+      ${roleTile_('Off-duty', 'off', t['Off-duty'], true)}
+      ${notes.length ? `<div class="roleTile span2 roleTileNote"><div class="roleTileLabel"><span>Leave / Inactive</span></div><span class="pill warn">${esc(notes.join(', '))}</span></div>` : ''}
+    </div>
+  </div>`;
+}
 function renderWeekCard(w){
-  return `<div class="card week"><h3>Week ${esc(w.weekNo)}</h3><p class="sub">${esc(w.period)}</p>${w.teams.map(t=>`
-    <div class="teamblock" style="border-left:6px solid ${esc(cleanColor(t.teamColor,'#0f172a'))}">
-      ${teamBadge(t)}
-      <div class="assignment"><b>Inpatient:</b> ${list(t.Team)}</div>
-      <div class="assignment"><b>OPD:</b> ${list(t.OPD)}</div>
-      <div class="assignment"><b>Off-duty:</b> ${list(t['Off-duty'])}</div>
-      <div class="assignment"><b>Leave:</b> ${list(t.Leave)}</div>
-      <div class="assignment"><b>Inactive:</b> ${list(t.Inactive)}</div>
-    </div>`).join('')}</div>`;
+  return `<div class="card week"><h3>Week ${esc(w.weekNo)}</h3><p class="sub">${esc(w.period)}</p>${w.teams.map(renderTeamRoleBlock_).join('')}</div>`;
 }
 function list(arr){ return arr && arr.length ? arr.map(chip).join(' ') : '<span class="muted">—</span>'; }
 function rotaFilteredWeeks(weeks){
@@ -477,7 +509,7 @@ function renderRotaTable(weeks){
       </tr>`);
     });
   });
-  return `<div class="card"><div class="scroll"><table>
+  return `<div class="card"><div class="scroll"><table class="rotaTable">
     <tr><th>Week</th><th>Team</th><th>Inpatient</th><th>OPD</th><th>Off-duty</th><th>Leave / Inactive</th></tr>
     ${rows.join('')}
   </table></div></div>`;

@@ -36,7 +36,11 @@
     header{position:sticky;top:0;z-index:5;background:var(--brand);color:#fff;padding:14px 16px;box-shadow:0 4px 18px rgba(15,23,42,.28);border-bottom:2px solid var(--gold)}
     .headerRow{display:flex;align-items:center;gap:12px;max-width:980px;margin:0 auto}
     .brandLogo{width:42px;height:42px;flex:none;filter:drop-shadow(0 2px 4px rgba(0,0,0,.35))}
-    .headerText{min-width:0}
+    .headerText{min-width:0;flex:1}
+    .headerRefreshBtn{margin-left:auto;flex:none;border:0;background:rgba(255,255,255,.12);color:#fff;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;transition:background .15s ease,transform .3s ease}
+    .headerRefreshBtn:hover{background:rgba(255,255,255,.22)}
+    .headerRefreshBtn:active svg{transform:rotate(180deg)}
+    .headerRefreshBtn svg{width:18px;height:18px;transition:transform .3s ease}
     header h1{font-size:19px;margin:0;letter-spacing:.2px;font-weight:700}
     header p{margin:3px 0 0;color:#cbd5e1;font-size:12px;letter-spacing:.3px}
 
@@ -148,6 +152,9 @@
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
       </div>
+      <button class="headerRefreshBtn" onclick="hardReloadApp()" title="Reload app to get the latest version" aria-label="Reload app">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      </button>
     </div>
   </header>
   <div class="appShell">
@@ -202,6 +209,12 @@ function chip(person){ const name=typeof person==='string'?person:(person.name||
 function teamBadge(t){ const color=cleanColor(t.teamColor || t.ColorHex || '#0f172a','#0f172a'); return `<span class="teamName" style="background:${esc(color)};color:${contrastColor(color)}">${esc(t.teamName || t.TeamName)}</span>`; }
 function tintBg_(hex, alpha){ const c=cleanColor(hex).replace('#',''); const r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16); return `rgba(${r},${g},${b},${alpha})`; }
 function toast(msg){ const t=qs('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',3500); }
+function hardReloadApp(){
+  // A plain reload can still be served from cache (or, on iOS, the whole page may have been
+  // suspended rather than reloaded at all when reopened from the home screen). Navigating to a
+  // never-before-seen URL guarantees a real network fetch of the latest deployed file.
+  window.location.href = window.location.pathname + '?_r=' + Date.now();
+}
 
 function openModal_(innerHtml){
   const overlay=document.createElement('div');

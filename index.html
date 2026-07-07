@@ -500,7 +500,7 @@ function renderRotaTable(weeks){
       const inactiveNames = (t.Inactive||[]).map(p=>typeof p==='string'?p:p.name);
       const notes = leaveNames.concat(inactiveNames.map(n=>n+' (inactive)'));
       rows.push(`<tr>
-        <td style="white-space:nowrap;"><b>${esc(w.weekNo)}</b><br><span class="small muted">${esc(w.period)}</span></td>
+        <td><b>${esc(w.weekNo)}</b><br><span class="small muted">${esc(w.period)}</span></td>
         <td>${teamBadge(t)}</td>
         <td>${list(t.Team)}</td>
         <td>${list(t.OPD)}</td>

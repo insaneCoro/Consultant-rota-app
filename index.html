@@ -62,6 +62,12 @@
     }
 
     .grid{display:grid;gap:12px}
+
+    .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+    .stat{border:1px solid var(--line);border-radius:var(--radius-md);padding:12px;background:var(--bg-alt);display:flex;flex-direction:column;gap:3px}
+    .stat b{font-size:18px;color:var(--brand)}
+    .stat span{font-size:11px;color:var(--muted);line-height:1.3}
+    @media(max-width:560px){.stats{grid-template-columns:1fr}.stat{flex-direction:row;align-items:center;justify-content:space-between}.stat span{text-align:right}}
     .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px;box-shadow:var(--shadow-card)}
     .card h2{font-size:17px;margin:0 0 10px;color:var(--brand);display:flex;align-items:center;gap:8px}
     .card h2::before{content:'';width:4px;height:16px;border-radius:2px;background:var(--gold);display:inline-block}
@@ -188,9 +194,9 @@
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
-        <div class="headerMeta"><span id="appVersionBadge" class="metaBadge">Version…</span><span id="connectionBadge" class="metaBadge">Online</span></div>
+        <div class="headerMeta"><span id="connectionBadge" class="metaBadge">Online</span></div>
       </div>
-      <button class="headerRefreshBtn" onclick="hardReloadApp()" title="Reload app to get the latest version" aria-label="Reload app">
+      <button class="headerRefreshBtn" onclick="hardReloadApp()" title="Reload app" aria-label="Reload app">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
       </button>
     </div>
@@ -232,8 +238,9 @@ let editorTeamId = '';
 function safeSessionGet(key){ try { return window.sessionStorage ? (sessionStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
 function safeSessionSet(key,value){ try { if(window.sessionStorage) sessionStorage.setItem(key,value); } catch(e){} }
 function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.removeItem(key); } catch(e){} }
-let adminPin = safeSessionGet('rotaAdminPin');
-let adminUnlocked = !!adminPin;
+let adminToken = safeSessionGet('rotaAdminToken');
+let adminUsername = safeSessionGet('rotaAdminUsername');
+let adminUnlocked = !!adminToken;
 let adminDataLoaded = false;
 let adminDataLoading = false;
 let loadingCount = 0;
@@ -330,10 +337,10 @@ function statusPill(value){
 }
 function apiLoadingMessage(fn){
   const map={
-    getBootstrap:'Loading rota system…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
+    getBootstrap:'Loading rota system…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
     checkLeaveAvailability:'Checking leave overlap…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
     exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
-    saveAdminUser:'Saving sub-admin…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
+    saveAdminUser:'Saving sub-admin…', archiveHistoricalAssignments:'Archiving historical assignments…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
   };
   return map[fn] || 'Working…';
 }
@@ -376,29 +383,85 @@ function call(fn, ...args){
     })
     .finally(() => { clearTimeout(timer); setLoading(false); });
 }
+function clearAdminSessionLocal(){
+  adminToken=''; adminUsername=''; adminUnlocked=false; adminDataLoaded=false; adminDataLoading=false;
+  auditLoaded=false; state.auditLog=[]; state.adminSession=null;
+  safeSessionRemove('rotaAdminToken'); safeSessionRemove('rotaAdminUsername'); refreshNav();
+}
 function adminCall(fn, ...args){
-  if(!adminUnlocked || !adminPin){
-    toast('Enter the admin PIN first.');
-    showTab('admin');
-    return Promise.reject(new Error('Admin PIN required.'));
+  if(!adminUnlocked || !adminToken){
+    toast('Sign in to Admin first.'); showTab('admin');
+    return Promise.reject(new Error('Admin sign-in required.'));
   }
-  return call(fn, adminPin, ...args);
+  return call(fn, adminToken, ...args).catch(err=>{
+    if(/session expired|sign in again/i.test((err&&err.message)||'')) clearAdminSessionLocal();
+    throw err;
+  });
 }
 async function loadAdminData(){
-  const data = await call('getAdminData', adminPin);
-  Object.assign(state, data);
-  adminUnlocked = true;
-  adminDataLoaded = true;
-  refreshNav();
-  safeSessionSet('rotaAdminPin', adminPin);
-  return data;
+  const publicTeams=state.teams||[], publicConsultants=state.consultants||[];
+  try{
+    const data = await call('getAdminData', adminToken);
+    state.adminTeams=data.teams||[]; state.adminConsultants=data.consultants||[]; state.adminLeaveRequests=data.leaveRequests||[];
+    Object.assign(state, data);
+    state.teams=publicTeams.length?publicTeams:(data.allTeams||data.teams||[]);
+    state.consultants=publicConsultants.length?publicConsultants:(data.consultants||[]);
+    adminUnlocked = true; adminDataLoaded = true; refreshNav();
+    safeSessionSet('rotaAdminToken', adminToken); safeSessionSet('rotaAdminUsername', adminUsername || (data.adminSession&&data.adminSession.username)||'');
+    return data;
+  }catch(err){
+    if(/session expired|sign in again/i.test((err&&err.message)||'')){
+      clearAdminSessionLocal();
+      if(['requests','editor','settings'].includes(currentTab)) currentTab='admin';
+    }
+    throw err;
+  }
+}
+
+function captureAdminPanelState(){
+  if(currentTab!=='admin') return {open:[],scrollY:window.scrollY};
+  const open=qsa('#tab-admin details.adminPanel').filter(d=>d.open).map(d=>{
+    const s=d.querySelector('summary'); return s?s.textContent.trim():'';
+  }).filter(Boolean);
+  return {open:open,scrollY:window.scrollY};
+}
+function restoreAdminPanelState(snapshot){
+  if(!snapshot) return;
+  if(currentTab==='admin' && snapshot.open && snapshot.open.length){
+    qsa('#tab-admin details.adminPanel').forEach(d=>{
+      const s=d.querySelector('summary');
+      if(s) d.open=snapshot.open.includes(s.textContent.trim());
+    });
+  }
+  window.scrollTo(0,Number(snapshot.scrollY||0));
+}
+
+async function refreshAdminState(options={}){
+  const viewSnapshot=captureAdminPanelState();
+  await loadAdminData();
+  if(options.rotaChanged){ markRotaStale(); state.latestVersion=(state.latestRota&&state.latestRota.meta)||state.latestVersion; }
+  if(options.auditChanged){ auditLoaded=false; state.auditLog=[]; }
+  renderActiveTab();
+  requestAnimationFrame(()=>restoreAdminPanelState(viewSnapshot));
 }
 async function ensureAdminDataLoaded(){
   if(!adminUnlocked || adminDataLoaded || adminDataLoading) return;
   adminDataLoading = true;
   if(currentTab==='admin') renderAdmin();
-  try{ await loadAdminData(); }
-  finally{ adminDataLoading = false; if(['admin','requests','editor','settings'].includes(currentTab)) renderActiveTab(); }
+  try{
+    await loadAdminData();
+  }catch(err){
+    if(!adminUnlocked){
+      currentTab='admin';
+      refreshNav();
+      qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab==='admin'));
+      qsa('main section').forEach(sec=>sec.classList.add('hide'));
+      qs('#tab-admin').classList.remove('hide');
+    }
+  }finally{
+    adminDataLoading = false;
+    if(['admin','requests','editor','settings'].includes(currentTab)) renderActiveTab();
+  }
 }
 function consultantName(id){ const c=state.consultants.find(x=>x.ConsultantID===id); return c?c.Name:id; }
 function teamName(id){ const list = state.allTeams || state.teams || []; const t=list.find(x=>x.TeamID===id); return t?t.TeamName:id; }
@@ -466,7 +529,6 @@ function updateVersionLine(){
   const latest=state.latestVersion;
   const updated=latest && latest.CreatedAt ? ` · Updated ${latest.CreatedAt}` : '';
   qs('#versionLine').textContent = latest ? `${latest.PeriodName || 'Active rota'} · Amendment ${latest.AmendmentNo}${updated}` : 'No official rota generated yet';
-  const badge=qs('#appVersionBadge'); if(badge) badge.textContent = state.app && state.app.version ? `v${state.app.version}` : 'Version unavailable';
   updateConnectionBadge();
 }
 function markRotaStale(){ state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta: null, weeks: [], viewMode:'empty' }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
@@ -530,7 +592,7 @@ async function load(){
   try{
     state = await call('getBootstrap');
     state.editorWeekList = null; state.editorWeek = null; rotaTeamFilter = 'ALL'; adminDataLoaded = false; adminDataLoading = false; auditLoaded=false; state.auditLog=[]; state.adminSession = null;
-    if(adminPin){ adminUnlocked = true; refreshNav(); }
+    if(adminToken){ adminUnlocked = true; refreshNav(); }
     refreshNav();
     updateVersionLine();
     render();
@@ -544,17 +606,27 @@ async function load(){
     rota.innerHTML = `<div class="card"><h2>Unable to load the rota</h2><p class="sub">${esc((e&&e.message)||'The rota server could not be reached.')}</p><div class="btns"><button class="btn" onclick="load()">Try Again</button><button class="btn secondary" onclick="hardReloadApp()">Reload App</button></div><p class="small muted">Check the internet connection and confirm the Apps Script deployment is active.</p></div>`;
   }
 }
-async function setup(){ const r=await adminCall('setupDatabaseAdmin'); toast(r.message); await load(); }
+async function setup(){ const r=await adminCall('setupDatabaseAdmin'); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function loginAdmin(){
-  const pin = (qs('#adminPin') && qs('#adminPin').value || '').trim();
-  if(!pin){ toast('Enter admin PIN.'); return; }
-  adminPin = pin;
-  try{ adminDataLoaded=false; await loadAdminData(); toast((isMainAdmin() ? 'Main admin' : 'Team sub-admin') + ' login successful.'); showTab('admin'); }
-  catch(e){ adminPin=''; adminUnlocked=false; safeSessionRemove('rotaAdminPin'); refreshNav(); }
+  const username=(qs('#adminUsername')&&qs('#adminUsername').value||'').trim().toLowerCase();
+  const pin=(qs('#adminPin')&&qs('#adminPin').value||'').trim();
+  if(!username || !pin){ toast('Enter username and PIN.'); return; }
+  try{
+    const auth=await call('loginAdmin',username,pin);
+    adminToken=auth.sessionToken; adminUsername=username; adminUnlocked=true; state.adminSession=auth.adminSession;
+    safeSessionSet('rotaAdminToken',adminToken); safeSessionSet('rotaAdminUsername',adminUsername);
+    adminDataLoaded=false; await loadAdminData();
+    toast((isMainAdmin()?'Main admin':'Team sub-admin')+' login successful.'); showTab('admin');
+  }catch(e){ clearAdminSessionLocal(); }
 }
-function logoutAdmin(){ adminPin=''; adminUnlocked=false; adminDataLoaded=false; adminDataLoading=false; auditLoaded=false; state.auditLog=[]; state.adminSession=null; safeSessionRemove('rotaAdminPin'); refreshNav(); toast('Signed out from Admin.'); showTab('rota'); }
+async function logoutAdmin(){
+  const token=adminToken;
+  clearAdminSessionLocal();
+  if(token){ try{ await call('logoutAdminSession',token); }catch(_){} }
+  toast('Signed out from Admin.'); showTab('rota');
+}
 function renderAdminLock(title='Admin Login'){
-  return `<div class="card"><h2>${esc(title)}</h2><p class="sub">Enter the main admin PIN or a team sub-admin PIN.</p><label>Admin / sub-admin PIN</label><input id="adminPin" type="password" inputmode="numeric" placeholder="Admin or sub-admin PIN"><div class="btns"><button class="btn" onclick="loginAdmin()">Login</button><button class="btn secondary" onclick="load()">Refresh</button></div></div>`;
+  return `<div class="card"><h2>${esc(title)}</h2><p class="sub">Sign in with your unique username and PIN.</p><label>Username</label><input id="adminUsername" autocomplete="username" value="${esc(adminUsername||'')}" placeholder="Example: admin or tcu_admin"><label>PIN</label><input id="adminPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="4 to 8 digit PIN" onkeydown="if(event.key==='Enter') loginAdmin()"><div class="btns"><button class="btn" onclick="loginAdmin()">Login</button><button class="btn secondary" onclick="load()">Refresh</button></div><p class="small muted">Each admin account must have a unique username. The PIN alone is not used to identify the account.</p></div>`;
 }
 
 function render(){ renderActiveTab(); }
@@ -820,7 +892,7 @@ function renderAdmin(){
   if(!isMainAdmin()){
     const s = state.adminSession || {};
     qs('#tab-admin').innerHTML = `
-      <div class="card"><h2>Team Sub-admin Panel</h2><p class="sub">Signed in as <b>${esc(s.name || 'Team Sub-admin')}</b>. Scope: <b>${esc(s.teamName || s.teamId || 'Assigned team')}</b>.</p><div class="btns"><button class="btn secondary" onclick="adminDataLoaded=false; ensureAdminDataLoaded()">Refresh Leave Data</button><button class="btn ok" onclick="showTab('requests')">Open Leave Approval</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div><p class="small muted">Sub-admin access is limited to approving/rejecting leave requests for the assigned team. Rota generation, manual edit, setup, and archive controls remain main-admin only.</p></div>
+      <div class="card"><h2>Team Sub-admin Panel</h2><p class="sub">Signed in as <b>${esc(s.name || 'Team Sub-admin')}</b>. Scope: <b>${esc(s.teamName || s.teamId || 'Assigned team')}</b>.</p><div class="btns"><button class="btn secondary" onclick="refreshAdminState()">Refresh Leave Data</button><button class="btn ok" onclick="showTab('requests')">Open Leave Approval</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div><p class="small muted">Sub-admin access is limited to approving/rejecting leave requests for the assigned team. Rota generation, manual edit, setup, and archive controls remain main-admin only.</p></div>
       <div class="adminSections">
         <details class="adminPanel" open><summary>Team Leave Approval</summary><div class="adminPanelBody"><div class="card"><h2>Assigned Team</h2><p>${esc(s.teamName || s.teamId || '-')}</p><div class="btns"><button class="btn ok" onclick="showTab('requests')">Review Pending Leave</button></div></div></div></details>
         <details class="adminPanel"><summary>Team Rota Warnings</summary><div class="adminPanelBody">${renderLatestConflicts()}</div></details>
@@ -828,14 +900,14 @@ function renderAdmin(){
     return;
   }
   qs('#tab-admin').innerHTML = `
-    <div class="card"><h2>Admin Panel</h2><p class="sub">You are signed in as <b>${esc(adminScopeText())}</b>. Sections are separated for easier mobile use.</p><div class="btns"><button class="btn secondary" onclick="adminDataLoaded=false; ensureAdminDataLoaded()">Refresh Admin Data</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div></div>
+    <div class="card"><h2>Admin Panel</h2><p class="sub">You are signed in as <b>${esc(adminScopeText())}</b>. Sections are separated for easier mobile use.</p><div class="btns"><button class="btn secondary" onclick="refreshAdminState()">Refresh Admin Data</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div></div>
     <div class="adminSections">
       <details class="adminPanel" open><summary>Rota Status & Conflicts</summary><div class="adminPanelBody">${renderLatestConflicts()}</div></details>
       <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}</div></div></details>
       <details class="adminPanel"><summary>Consultant Settings</summary><div class="adminPanelBody"><div class="card"><h2>Add Consultant</h2><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Consultant type</label><select id="consultantType">${consultantTypeOptions('Regular')}</select></div><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div></div><label>Active from</label><input type="date" id="activeFrom"><p class="small muted">A special consultant is normally assigned to inpatient Team every 6 weeks. In other weeks, the normal Can Off-duty setting still applies.</p><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div></div></details>
       <details class="adminPanel"><summary>Sub-admin Users</summary><div class="adminPanelBody">${renderAdminUsersPanel()}</div></details>
       <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: Consultant Rota 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
-      <details class="adminPanel"><summary>Rota Periods, Versions & Archive</summary><div class="adminPanelBody"><div class="card"><h2>Rota Periods and Amendments</h2><p class="sub">Each rota period has its own amendment numbering. New periods begin at Amendment 1. Archived periods remain available for audit and controlled restoration.</p>${renderVersionsList()}</div></div></details>
+      <details class="adminPanel"><summary>Rota Periods, Versions & Archive</summary><div class="adminPanelBody"><div class="card"><h2>Rota Periods and Amendments</h2><p class="sub">Each rota period has its own amendment numbering. New periods begin at Amendment 1. Archived periods remain available for audit and controlled restoration.</p>${renderVersionsList()}</div>${renderAssignmentStoragePanel()}</div></details>
       <details class="adminPanel"><summary>Mark Consultant Inactive</summary><div class="adminPanelBody"><div class="card"><h2>Mark Consultant Inactive</h2><label>Consultant</label><select id="inactiveConsultant">${consultantOptions('', true)}</select><div class="row"><div><label>Inactive from</label><input type="date" id="inactiveFrom"></div><div><label>Reason / note</label><input id="inactiveNote"></div></div><div class="btns"><button class="btn secondary" onclick="previewInactive()">Preview Impact</button><button class="btn bad" onclick="confirmInactive()">Confirm Inactive</button></div><div id="inactivePreview"></div></div></div></details>
       <details class="adminPanel"><summary>Audit Log</summary><div class="adminPanelBody"><div class="card"><h2>Recent Administrative Activity</h2><p class="sub">Records approvals, publishing, manual edits, settings changes, exports, and other important actions. PIN values are never written to this log.</p><div class="btns"><button class="btn secondary" onclick="loadAuditLog(true)">Load / Refresh Audit Log</button></div><div id="auditLogPanel">${renderAuditLog()}</div></div></div></details>
       <details class="adminPanel"><summary>Danger Zone</summary><div class="adminPanelBody"><div class="card"><h2>Danger Zone</h2><p class="sub dangerText">Clears generated rota periods, versions, assignments, conflicts, and override logs only. Teams, consultants, and leave requests remain.</p><button class="btn bad" onclick="resetRotaOnly()">Clear Generated Rota</button></div></div></details>
@@ -872,34 +944,50 @@ function renderLatestConflicts(){
 
 
 function renderAdminUsersPanel(){
-  return `<div class="card"><h2>Create Team Sub-admin</h2><p class="sub">A team sub-admin can approve/reject leave requests only for the assigned team. They cannot generate rota, use manual edit, change setup, or access archive controls.</p><div class="row"><div><label>Name</label><input id="adminUserName" placeholder="Dr. Name"></div><div><label>Assigned team</label><select id="adminUserTeam">${allTeamOptions('', true)}</select></div></div><div class="row"><div><label>PIN</label><input id="adminUserPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"></div><div><label>Active</label><select id="adminUserActive"><option>Yes</option><option>No</option></select></div></div><label>Notes</label><input id="adminUserNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addAdminUser()">Add Sub-admin</button></div>${renderAdminUsersList()}</div>`;
+  return `<div class="card"><h2>Create Team Sub-admin</h2><p class="sub">Each account needs a unique username. A team sub-admin can approve/reject leave only for the assigned team.</p><div class="row"><div><label>Name</label><input id="adminUserName" placeholder="Dr. Name"></div><div><label>Username</label><input id="adminUserUsername" autocomplete="off" placeholder="Example: tcu_admin"></div></div><div class="row"><div><label>Assigned team</label><select id="adminUserTeam">${allTeamOptions('', true)}</select></div><div><label>PIN</label><input id="adminUserPin" type="password" inputmode="numeric" autocomplete="new-password" placeholder="4 to 8 digits"></div></div><div class="row"><div><label>Active</label><select id="adminUserActive"><option>Yes</option><option>No</option></select></div><div><label>Notes</label><input id="adminUserNotes" placeholder="Optional"></div></div><div class="btns"><button class="btn" onclick="addAdminUser()">Add Sub-admin</button></div>${renderAdminUsersList()}</div>`;
 }
 function renderAdminUsersList(){
-  const users = state.adminUsers || [];
+  const users=state.adminUsers||[];
   if(!users.length) return '<p class="muted">No sub-admin users yet.</p>';
-  return `<div class="scroll adminTable"><table><tr><th>Name</th><th>Team</th><th>PIN</th><th>Active</th><th>Notes</th><th>Action</th></tr>${users.map(u=>`
+  return `<div class="scroll adminTable"><table><tr><th>Username</th><th>Name</th><th>Team</th><th>New PIN</th><th>Active</th><th>Last login</th><th>Notes</th><th>Action</th></tr>${users.map(u=>`
     <tr>
-      <td data-label="Name"><input id="auName-${esc(u.UserID)}" value="${esc(u.Name || '')}" style="min-width:130px"></td>
-      <td data-label="Team"><select id="auTeam-${esc(u.UserID)}" style="min-width:130px">${allTeamOptions(u.TeamID, false)}</select></td>
-      <td data-label="PIN"><input id="auPin-${esc(u.UserID)}" type="password" inputmode="numeric" value="${esc(u.PIN || '')}" style="min-width:110px"></td>
-      <td data-label="Active"><select id="auActive-${esc(u.UserID)}" style="min-width:90px">${yesNoOptions(u.Active || 'Yes')}</select></td>
-      <td data-label="Notes"><input id="auNotes-${esc(u.UserID)}" value="${esc(u.Notes || '')}" style="min-width:150px"></td>
+      <td data-label="Username"><input id="auUsername-${esc(u.UserID)}" value="${esc(u.Username||'')}" style="min-width:130px"></td>
+      <td data-label="Name"><input id="auName-${esc(u.UserID)}" value="${esc(u.Name||'')}" style="min-width:130px"></td>
+      <td data-label="Team"><select id="auTeam-${esc(u.UserID)}" style="min-width:130px">${allTeamOptions(u.TeamID,false)}</select></td>
+      <td data-label="New PIN"><input id="auPin-${esc(u.UserID)}" type="password" inputmode="numeric" autocomplete="new-password" placeholder="Keep current" style="min-width:110px"></td>
+      <td data-label="Active"><select id="auActive-${esc(u.UserID)}" style="min-width:90px">${yesNoOptions(u.Active||'Yes')}</select></td>
+      <td data-label="Last login"><span class="small">${esc(u.LastLoginAt||'Never')}</span></td>
+      <td data-label="Notes"><input id="auNotes-${esc(u.UserID)}" value="${esc(u.Notes||'')}" style="min-width:150px"></td>
       <td data-label="Action"><button class="btn secondary" onclick="saveAdminUserSettings('${esc(u.UserID)}')">Save sub-admin</button></td>
-    </tr>`).join('')}</table></div>`;
+    </tr>`).join('')}</table></div><p class="small muted">Leave “New PIN” blank to keep the existing PIN. Changing username, PIN, or Active status invalidates that user’s current session.</p>`;
 }
 async function addAdminUser(){
-  const data={Name:qs('#adminUserName').value,TeamID:qs('#adminUserTeam').value,PIN:qs('#adminUserPin').value,Role:'TeamAdmin',Active:qs('#adminUserActive').value,Notes:qs('#adminUserNotes').value};
-  if(!data.Name || !data.TeamID || !data.PIN){ toast('Name, team, and PIN are required.'); return; }
-  const r=await adminCall('saveAdminUser', data); toast(r.message); await load(); showTab('admin');
+  const data={Username:qs('#adminUserUsername').value,Name:qs('#adminUserName').value,TeamID:qs('#adminUserTeam').value,PIN:qs('#adminUserPin').value,Role:'TeamAdmin',Active:qs('#adminUserActive').value,Notes:qs('#adminUserNotes').value};
+  if(!data.Username||!data.Name||!data.TeamID||!data.PIN){ toast('Username, name, team, and PIN are required.'); return; }
+  const r=await adminCall('saveAdminUser',data); toast(r.message); await refreshAdminState({auditChanged:true});
 }
 async function saveAdminUserSettings(id){
-  const data={UserID:id,Name:qs(`#auName-${id}`).value,TeamID:qs(`#auTeam-${id}`).value,PIN:qs(`#auPin-${id}`).value,Role:'TeamAdmin',Active:qs(`#auActive-${id}`).value,Notes:qs(`#auNotes-${id}`).value};
-  if(!data.Name || !data.TeamID || !data.PIN){ toast('Name, team, and PIN are required.'); return; }
-  const r=await adminCall('saveAdminUser', data); toast(r.message); await load(); showTab('admin');
+  const data={UserID:id,Username:qs(`#auUsername-${id}`).value,Name:qs(`#auName-${id}`).value,TeamID:qs(`#auTeam-${id}`).value,PIN:qs(`#auPin-${id}`).value,Role:'TeamAdmin',Active:qs(`#auActive-${id}`).value,Notes:qs(`#auNotes-${id}`).value};
+  if(!data.Username||!data.Name||!data.TeamID){ toast('Username, name, and team are required.'); return; }
+  const r=await adminCall('saveAdminUser',data); toast(r.message); await refreshAdminState({auditChanged:true});
 }
 
 function renderTeamsList(){
   return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}</td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
+}
+
+
+function renderAssignmentStoragePanel(){
+  const s=state.assignmentStorage||{};
+  const historical=Number(s.historicalRowsReadyToArchive||0);
+  return `<div class="card"><h2>Assignment Storage</h2><p class="sub">The current official amendment and any draft stay in the live RotaAssignments sheet. Older amendments are stored in a separate archive spreadsheet for their rota period.</p><div class="stats"><div class="stat"><b>${esc(Number(s.liveRows||0))}</b><span>Live assignment rows</span></div><div class="stat"><b>${esc(Number(s.historicalVersionsReadyToArchive||0))}</b><span>Historical versions ready</span></div><div class="stat"><b>${esc(historical)}</b><span>Historical rows ready</span></div></div>${historical?`<div class="previewBox"><span class="pill warn">Optional one-time migration</span><p>Back up the production Google Sheet first, then move existing historical rows out of RotaAssignments. Future archived amendments move automatically.</p><button class="btn warn" onclick="archiveHistoryNow()">Archive Existing History</button></div>`:`<p class="small muted">No existing historical assignment rows need migration. Future archived amendments will be moved automatically.</p>`}</div>`;
+}
+async function archiveHistoryNow(){
+  const text=await promptModal('Back up the Google Sheet first. Type ARCHIVE HISTORY exactly to move existing historical amendments out of the live RotaAssignments sheet.','');
+  if(text!=='ARCHIVE HISTORY'){ if(text!==null) toast('Archive cancelled. Confirmation text did not match.'); return; }
+  const r=await adminCall('archiveHistoricalAssignments',text);
+  toast(r.message);
+  await refreshAdminState({auditChanged:true});
 }
 
 function renderVersionsList(){
@@ -919,12 +1007,12 @@ async function publishDraftVersion(id){
   const newPeriod = String(v.PeriodStatus||'') === 'Draft';
   const msg = newPeriod ? `Publish ${v.PeriodName || 'this new rota period'}? The current active period will be archived automatically, and Amendment ${v.AmendmentNo} will become live. If the official rota changed after this draft was created, publishing will be blocked.` : `Publish Draft Amendment ${v.AmendmentNo} inside ${v.PeriodName || 'the active rota period'}? Users will see it as the latest official amendment. If the official rota changed after this draft was created, publishing will be blocked.`;
   if(!(await confirmModal(msg, 'Publish Draft'))) return;
-  const r = await adminCall('publishDraftRota', id); toast(r.message); await load(); showTab('rota');
+  const r=await adminCall('publishDraftRota',id); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); await refreshRotaWindow(); showTab('rota');
 }
 async function voidVersion(id){
   const reason = (await promptModal('Reason for voiding this rota version?', 'Generated by mistake')) || '';
   if(!(await confirmModal('Void this rota version? It will stay in the audit history but will not be used as latest.'))) return;
-  const r = await adminCall('voidRotaVersion', id, reason); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('voidRotaVersion',id,reason); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
 }
 async function restoreVersion(id){
   const reason = (await promptModal('Reason for restoring this rota version?', 'Restored after error')) || '';
@@ -933,11 +1021,11 @@ async function restoreVersion(id){
   const crossPeriod = v && activePeriodId && String(v.PeriodID||'') !== String(activePeriodId);
   const restoreMsg = crossPeriod ? `Restore Amendment ${v.AmendmentNo} from ${v.PeriodName || 'an archived period'}? This will archive the current active period and reactivate the selected period.` : 'Restore this archived amendment as the official latest amendment within the active rota period?';
   if(!(await confirmModal(restoreMsg))) return;
-  const r = await adminCall('restoreRotaVersion', id, reason); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('restoreRotaVersion',id,reason); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
 }
 async function deleteDraftVersion(id){
   if(!(await confirmModal('Permanently delete this draft rota? This only works for draft versions.'))) return;
-  const r = await adminCall('deleteDraftRota', id); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('deleteDraftRota',id); toast(r.message); await refreshAdminState({auditChanged:true});
 }
 async function resetRotaOnly(){
   const text = await promptModal('This clears generated rota periods, versions, and assignments only. Teams, consultants, and leave requests will remain. Type RESET ROTA to confirm.', '');
@@ -951,7 +1039,7 @@ async function resetRotaOnly(){
     showTab('admin');
   } else {
     toast(r.message || 'Generated rota cleared.');
-    await load();
+    await refreshAdminState({rotaChanged:true,auditChanged:true});
     showTab('admin');
   }
 }
@@ -990,9 +1078,9 @@ function renderConsultantsList(){
       <td data-label="Action"><button class="btn secondary" onclick="saveConsultantSettings('${esc(c.ConsultantID)}')">Save settings</button></td>
     </tr>`).join('')}</table></div>`;
 }
-async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes'}); toast(r.message); await load(); showTab('admin'); }
-async function addConsultant(){ const data={Name:qs('#consultantName').value,TeamID:qs('#consultantTeam').value,ConsultantType:qs('#consultantType').value,CanOffDuty:qs('#canOff').value,ColorHex:qs('#consultantColor').value,ActiveFrom:qs('#activeFrom').value,Notes:qs('#consultantNotes').value}; const r=await adminCall('saveConsultant',data); toast(r.message); await load(); showTab('admin'); }
-async function updateTeamColor(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t) return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:qs(`#teamOrder-${id}`).value,ColorHex:qs(`#teamColor-${id}`).value,Active:t.Active}); toast(r.message); await load(); showTab('admin'); }
+async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes'}); toast(r.message); await refreshAdminState({auditChanged:true}); }
+async function addConsultant(){ const data={Name:qs('#consultantName').value,TeamID:qs('#consultantTeam').value,ConsultantType:qs('#consultantType').value,CanOffDuty:qs('#canOff').value,ColorHex:qs('#consultantColor').value,ActiveFrom:qs('#activeFrom').value,Notes:qs('#consultantNotes').value}; const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); }
+async function updateTeamColor(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t) return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:qs(`#teamOrder-${id}`).value,ColorHex:qs(`#teamColor-${id}`).value,Active:t.Active}); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function saveConsultantSettings(id){
   const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;
   const data={
@@ -1008,12 +1096,12 @@ async function saveConsultantSettings(id){
     Notes:qs(`#cNotes-${id}`).value
   };
   if(data.CurrentStatus==='Inactive' && !data.InactiveFrom){ toast('Inactive status needs an inactive-from date.'); return; }
-  const r=await adminCall('saveConsultant',data); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
 }
 async function updateConsultantColor(id){
   const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;
   const data={ConsultantID:id,Name:c.Name,TeamID:c.TeamID,ConsultantType:c.ConsultantType||'Regular',CanOffDuty:c.CanOffDuty,ColorHex:qs(`#consultantColor-${id}`).value,CurrentStatus:c.CurrentStatus,ActiveFrom:c.ActiveFrom,InactiveFrom:c.InactiveFrom,Notes:c.Notes};
-  const r=await adminCall('saveConsultant',data); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
 }
 
 function renderManualGrid(){
@@ -1051,7 +1139,7 @@ async function generateRota(){
   const oneTeam = data.teamId && data.teamId !== 'ALL';
   const msg = oneTeam ? 'Create a Draft amendment for this team inside the current active rota period? Other teams will be copied unchanged. Users will still see the current official amendment until you publish.' : 'Create a separate new rota period as Draft? The current active period will remain live and will only be archived if you later publish this draft.';
   const ok=await confirmModal(msg, 'Create Draft'); if(!ok) return;
-  const r=await adminCall('createDraftRota',data); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('createDraftRota',data); toast(r.message); await refreshAdminState({auditChanged:true});
 }
 async function previewInactive(){
   const data={ConsultantID:qs('#inactiveConsultant').value,InactiveFrom:qs('#inactiveFrom').value,Notes:qs('#inactiveNote').value};
@@ -1061,17 +1149,18 @@ async function confirmInactive(){
   const data={ConsultantID:qs('#inactiveConsultant').value,InactiveFrom:qs('#inactiveFrom').value,Notes:qs('#inactiveNote').value};
   if(!data.ConsultantID || !data.InactiveFrom){ toast('Select consultant and inactive date.'); return; }
   if(!(await confirmModal('Confirm inactivity and amend future rota if needed?'))) return;
-  const r=await adminCall('confirmInactivity',data); toast(r.message); await load(); showTab('admin');
+  const r=await adminCall('confirmInactivity',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
 }
 
 function renderRequests(){
   if(!adminUnlocked){ qs('#tab-requests').innerHTML = ''; return; }
   if(adminDataLoading || !adminDataLoaded){ qs('#tab-requests').innerHTML = '<div class="card"><h2>Leave Approval</h2><p class="sub">Loading leave requests…</p></div>'; return; }
-  const pending = state.leaveRequests.filter(l=>l.Status==='Pending');
-  const approved = state.leaveRequests.filter(l=>l.Status==='Approved');
-  const history = state.leaveRequests.filter(l=>!['Pending','Approved'].includes(l.Status)).slice().sort((a,b)=>String(b.AdminDecisionDate||b.SubmittedAt||'').localeCompare(String(a.AdminDecisionDate||a.SubmittedAt||''))).slice(0,30);
+  const adminLeaves=state.adminLeaveRequests||state.leaveRequests||[];
+  const pending = adminLeaves.filter(l=>l.Status==='Pending');
+  const approved = adminLeaves.filter(l=>l.Status==='Approved');
+  const history = adminLeaves.filter(l=>!['Pending','Approved'].includes(l.Status)).slice().sort((a,b)=>String(b.AdminDecisionDate||b.SubmittedAt||'').localeCompare(String(a.AdminDecisionDate||a.SubmittedAt||''))).slice(0,30);
   const scope = isMainAdmin() ? 'All teams' : `Assigned team only: ${esc((state.adminSession||{}).teamName || '')}`;
-  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="adminDataLoaded=false; ensureAdminDataLoaded()">Refresh Leave Data</button></div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
+  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshAdminState()">Refresh Leave Data</button></div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
 }
 function renderLeaveRequestCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="previewLeave('${esc(l.LeaveID)}')">Preview</button><button class="btn ok" onclick="approveLeaveReq('${esc(l.LeaveID)}')">Approve</button><button class="btn bad" onclick="rejectLeaveReq('${esc(l.LeaveID)}')">Reject</button></div><div id="preview-${esc(l.LeaveID)}"></div></div>`;
@@ -1084,9 +1173,9 @@ function renderLeaveHistoryCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}</div>`;
 }
 async function previewLeave(id){ const r=await adminCall('previewLeaveImpact',id); qs(`#preview-${id}`).innerHTML=renderImpact(r); }
-async function approveLeaveReq(id){ const reason=(await promptModal('Override/admin note if needed. Leave blank if not needed.','')) || ''; const r=await adminCall('approveLeave',id,reason); toast(r.message); await load(); showTab('requests'); }
-async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rejection?','')) || ''; const r=await adminCall('rejectLeave',id,note); toast(r.message); await load(); showTab('requests'); }
-async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?','')) || ''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); await load(); showTab('requests'); }
+async function approveLeaveReq(id){ const reason=(await promptModal('Override/admin note if needed. Leave blank if not needed.',''))||''; const r=await adminCall('approveLeave',id,reason); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); renderRequests(); }
+async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rejection?',''))||''; const r=await adminCall('rejectLeave',id,note); toast(r.message); await refreshAdminState({auditChanged:true}); renderRequests(); }
+async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?',''))||''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); renderRequests(); }
 function renderImpact(r){
   const cls = r.level==='Conflict'?'bad':r.level==='Warning'?'warn':r.level==='Safe'?'ok':'blue';
   return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p>${r.preview && r.preview.length ? r.preview.map(p=>`<div class="teamblock"><b>Week ${esc(p.weekNo)}</b><div class="small muted">${esc(p.period)}</div><div class="assignment"><b>Inpatient:</b> ${list(p.Team)}</div><div class="assignment"><b>OPD:</b> ${list(p.OPD)}</div><div class="assignment"><b>Off-duty:</b> ${list(p['Off-duty'])}</div><div class="assignment"><b>Leave:</b> ${list(p.Leave)}</div><div class="assignment"><b>Inactive:</b> ${list(p.Inactive)}</div></div>`).join('') : ''}${r.conflicts && r.conflicts.length ? `<h3>Warnings / conflicts</h3><ul>${r.conflicts.map(c=>`<li><b>${esc(c.Level)}</b> Week ${esc(c.WeekNo)}: ${esc(c.Message)}</li>`).join('')}</ul>` : ''}</div>`;
@@ -1167,24 +1256,22 @@ async function publishManualEdit(){
   if(!(await confirmModal('Publish this manual week as a new official amendment? The edited week will stay locked and subsequent weeks will be recalculated.'))) return;
   const r = await adminCall('publishManualEditedWeek', { weekNo: Number(editorWeekNo), reason: reason, edits: collectManualEdits() });
   toast(r.message);
-  await load();
-  markRotaStale();
+  await refreshAdminState({rotaChanged:true,auditChanged:true});
+  await refreshRotaWindow();
   showTab('rota');
 }
 
 function renderSettings(){
   if(!adminUnlocked){ qs('#tab-settings').innerHTML = ''; return; }
   if(!isMainAdmin()){ qs('#tab-settings').innerHTML = '<div class="card"><h2>Setup</h2><p class="sub">Setup is limited to the main admin.</p></div>'; return; }
-  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>Admin PIN</h2><p class="sub dangerText">Default PIN is 1234. Change it before sharing the web app link.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Each created team has one inpatient Team consultant weekly.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional, but the same consultant must never be Off-duty two weeks in a row.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is skipped when there are only 2 available consultants, or when assigning it would repeat the same consultant Off-duty two weeks in a row.</li><li>Inpatient Team should not be assigned to the same consultant two weeks in a row unless all other consultants in that team are unavailable because of Leave/Inactive status.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactive consultant is removed from assignments from the effective week onward.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>A consultant marked Special is normally assigned to inpatient Team every 6 weeks. If on approved leave when due, the Team turn moves to the next available safe week. The Can Off-duty setting remains absolute and the special turn must not unfairly delay eligible consultants' normal Off-duty cycle.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require an admin PIN.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
+  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>My Admin Login</h2><p class="sub">Signed in as <b>${esc((state.adminSession||{}).username||'admin')}</b>. Changing the PIN signs out existing sessions.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Each created team has one inpatient Team consultant weekly.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional, but the same consultant must never be Off-duty two weeks in a row.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is skipped when there are only 2 available consultants, or when assigning it would repeat the same consultant Off-duty two weeks in a row.</li><li>Inpatient Team should not be assigned to the same consultant two weeks in a row unless all other consultants in that team are unavailable because of Leave/Inactive status.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactive consultant is removed from assignments from the effective week onward.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>A consultant marked Special is normally assigned to inpatient Team every 6 weeks. If on approved leave when due, the Team turn moves to the next available safe week. The Can Off-duty setting remains absolute and the special turn must not unfairly delay eligible consultants' normal Off-duty cycle.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require a valid temporary session token created by username + PIN sign-in. The PIN is not stored in the browser after login.</li><li>The live RotaAssignments sheet keeps the current official amendment and active drafts. Archived amendments are stored separately by rota period to control long-term sheet size.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
 }
 async function changeAdminPin(){
   const pin = (qs('#newAdminPin') && qs('#newAdminPin').value || '').trim();
   if(!/^\d{4,8}$/.test(pin)){ toast('PIN must be 4 to 8 digits.'); return; }
   const r = await adminCall('updateAdminPin', pin);
-  adminPin = pin;
-  safeSessionSet('rotaAdminPin', adminPin);
   toast(r.message);
-  render();
+  if(r.sessionInvalidated){ const token=adminToken; clearAdminSessionLocal(); if(token){ try{ await call('logoutAdminSession',token); }catch(_){} } showTab('admin'); } else render();
 }
 
 load();

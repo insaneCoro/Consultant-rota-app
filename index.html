@@ -33,9 +33,9 @@
     ::selection{background:var(--gold-soft)}
     :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 
-    header{position:sticky;top:0;z-index:5;background:#00132f;color:#fff;padding:12px 16px;box-shadow:0 4px 18px rgba(15,23,42,.28);border-bottom:2px solid var(--gold)}
+    header{position:sticky;top:0;z-index:5;background:#01163a;color:#fff;padding:8px 16px;box-shadow:0 4px 18px rgba(15,23,42,.28);border-bottom:2px solid var(--gold)}
     .headerRow{display:flex;align-items:center;gap:14px;max-width:980px;margin:0 auto}
-    .brandLogo{width:58px;height:58px;flex:none;display:block;border-radius:22%;object-fit:cover;filter:drop-shadow(0 5px 8px rgba(0,0,0,.32))}
+    .brandLogo{width:68px;height:78px;flex:none;display:block;object-fit:contain;filter:drop-shadow(0 5px 7px rgba(0,0,0,.34))}
     .headerText{min-width:0;flex:1}
     .headerRefreshBtn{margin-left:auto;flex:none;border:0;background:rgba(255,255,255,.12);color:#fff;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;transition:background .15s ease,transform .3s ease}
     .headerRefreshBtn:hover{background:rgba(255,255,255,.22)}
@@ -44,9 +44,9 @@
     header h1{font-size:19px;margin:0;letter-spacing:.2px;font-weight:700}
     header p{margin:3px 0 0;color:#cbd5e1;font-size:12px;letter-spacing:.3px}
     @media(max-width:600px){
-      header{padding:10px 12px}
+      header{padding:7px 10px}
       .headerRow{gap:10px}
-      .brandLogo{width:52px;height:52px}
+      .brandLogo{width:62px;height:70px}
       header h1{font-size:18px}
       .headerRefreshBtn{width:40px;height:40px}
     }
@@ -62,7 +62,7 @@
     nav button.active{color:var(--brand)}
     @media(min-width:900px){
       .appShell{flex-direction:row}
-      nav{position:sticky;top:0;left:auto;right:auto;bottom:auto;flex-direction:column;justify-content:flex-start;align-items:stretch;width:200px;flex:none;height:calc(100vh - 71px);border-top:0;border-right:1px solid var(--line);box-shadow:none;padding:16px 0;gap:0}
+      nav{position:sticky;top:0;left:auto;right:auto;bottom:auto;flex-direction:column;justify-content:flex-start;align-items:stretch;width:200px;flex:none;height:calc(100vh - 96px);border-top:0;border-right:1px solid var(--line);box-shadow:none;padding:16px 0;gap:0}
       nav button{flex-direction:row;justify-content:flex-start;gap:10px;padding:11px 20px;font-size:13px;border-left:3px solid transparent}
       nav button svg{width:18px;height:18px}
       nav button.active{background:var(--gold-soft);border-left:3px solid var(--gold)}
@@ -206,7 +206,7 @@
 <body>
   <header>
     <div class="headerRow">
-      <img class="brandLogo" src="icons/app-logo.png" alt="">
+      <img class="brandLogo" src="icons/header-logo.png" alt="">
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>

@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=1.9.2">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=1.9.2">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=1.9.2">
+  <link rel="manifest" href="manifest.webmanifest?v=1.9.3">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=1.9.3">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=1.9.3">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -212,7 +212,7 @@
 <body>
   <header>
     <div class="headerRow">
-      <img class="brandLogo" src="icons/header-logo.png?v=1.9.2" alt="">
+      <img class="brandLogo" src="icons/header-logo.png?v=1.9.3" alt="">
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
@@ -271,6 +271,7 @@ let startupCacheUsed = false;
 let adminToken = safeSessionGet('rotaAdminToken');
 let adminUsername = safeSessionGet('rotaAdminUsername');
 let adminUnlocked = !!adminToken;
+try{ state.adminSession=JSON.parse(safeSessionGet('rotaAdminSession')||'null'); }catch(_){ state.adminSession=null; }
 let adminDataLoaded = false;
 let adminDataLoading = false;
 let leaveApprovalDataLoaded = false;
@@ -280,16 +281,17 @@ let auditLoaded = false;
 let auditLoading = false;
 function refreshNav(){
   const session = state.adminSession || {};
+  const sessionKnown = !!session.role;
   const main = !!session.isMainAdmin;
   const requestsBtn = document.querySelector('nav button[data-tab="requests"]');
   const editorBtn = document.querySelector('nav button[data-tab="editor"]');
   const settingsBtn = document.querySelector('nav button[data-tab="settings"]');
-  if(requestsBtn) requestsBtn.classList.toggle('hide', !adminUnlocked);
+  if(requestsBtn) requestsBtn.classList.toggle('hide', !adminUnlocked || !sessionKnown);
   if(editorBtn) editorBtn.classList.toggle('hide', !adminUnlocked || !main);
   if(settingsBtn) settingsBtn.classList.toggle('hide', !adminUnlocked || !main);
   const adminBtn = document.querySelector('nav button[data-tab="admin"]');
   const adminLabel = adminBtn && adminBtn.querySelector('.navLabel');
-  if(adminBtn) adminBtn.classList.toggle('hide', adminUnlocked && !main && session.role==='TeamAdmin');
+  if(adminBtn) adminBtn.classList.toggle('hide', adminUnlocked && (!sessionKnown || (!main && session.role==='TeamAdmin')));
   if(adminLabel) adminLabel.textContent = adminUnlocked ? 'Admin Dashboard' : 'Admin Login';
 }
 
@@ -315,7 +317,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=1.9.2',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=1.9.3',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });
@@ -438,6 +440,7 @@ function clearAdminSessionLocal(){
   leaveApprovalDataLoaded=false; leaveApprovalDataLoading=false;
   auditLoaded=false; state.auditLog=[]; state.adminSession=null;
   safeSessionRemove('rotaAdminToken'); safeSessionRemove('rotaAdminUsername'); refreshNav();
+  safeSessionRemove('rotaAdminSession');
 }
 function adminCall(fn, ...args){
   if(!adminUnlocked || !adminToken){
@@ -460,6 +463,7 @@ async function loadAdminData(){
     adminUnlocked = true; adminDataLoaded = true; refreshNav();
     leaveApprovalDataLoaded = !!data.leaveRequestsIncluded;
     safeSessionSet('rotaAdminToken', adminToken); safeSessionSet('rotaAdminUsername', adminUsername || (data.adminSession&&data.adminSession.username)||'');
+    safeSessionSet('rotaAdminSession', JSON.stringify(data.adminSession||null));
     return data;
   }catch(err){
     if(/session expired|sign in again/i.test((err&&err.message)||'')){
@@ -474,6 +478,7 @@ async function loadLeaveApprovalData(){
   const publicTeams=state.teams||[], publicConsultants=state.consultants||[];
   const data = await adminCall('getAdminLeaveData');
   state.adminSession=data.adminSession||state.adminSession;
+  safeSessionSet('rotaAdminSession', JSON.stringify(state.adminSession||null));
   state.adminTeams=data.teams||[];
   state.adminConsultants=data.consultants||[];
   state.adminLeaveRequests=data.leaveRequests||[];
@@ -496,6 +501,15 @@ async function ensureLeaveApprovalDataLoaded(force=false){
 async function refreshLeaveApprovalData(){
   leaveApprovalDataLoaded=false;
   await ensureLeaveApprovalDataLoaded(true);
+}
+
+async function restoreAdminSessionForNav(){
+  if(!adminToken || state.adminSession) return;
+  try{
+    state.adminSession=await callQuiet('getAdminSession',adminToken);
+    safeSessionSet('rotaAdminSession',JSON.stringify(state.adminSession||null));
+    refreshNav();
+  }catch(_){ clearAdminSessionLocal(); }
 }
 
 function captureAdminPanelState(){
@@ -714,6 +728,7 @@ async function load(){
   const hadCache=hydrateStartupCache_();
   state.editorWeekList = null; state.editorWeek = null; adminDataLoaded = false; adminDataLoading = false; leaveApprovalDataLoaded=false; leaveApprovalDataLoading=false; auditLoaded=false; state.auditLog=[];
   if(adminToken) adminUnlocked = true;
+  restoreAdminSessionForNav();
   startupRefreshing=true;
   refreshNav(); updateVersionLine(); render();
   try{
@@ -747,6 +762,7 @@ async function loginAdmin(){
     const auth=await call('loginAdmin',username,pin);
     adminToken=auth.sessionToken; adminUsername=username; adminUnlocked=true; state.adminSession=auth.adminSession;
     safeSessionSet('rotaAdminToken',adminToken); safeSessionSet('rotaAdminUsername',adminUsername);
+    safeSessionSet('rotaAdminSession',JSON.stringify(state.adminSession||null));
     adminDataLoaded=false; leaveApprovalDataLoaded=false;
     toast((isMainAdmin()?'Main admin':'Team sub-admin')+' login successful.'); await showTab(isMainAdmin()?'admin':'requests');
   }catch(e){ clearAdminSessionLocal(); }

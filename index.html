@@ -269,6 +269,8 @@ let adminUsername = safeSessionGet('rotaAdminUsername');
 let adminUnlocked = !!adminToken;
 let adminDataLoaded = false;
 let adminDataLoading = false;
+let leaveApprovalDataLoaded = false;
+let leaveApprovalDataLoading = false;
 let loadingCount = 0;
 let auditLoaded = false;
 let auditLoading = false;
@@ -415,6 +417,7 @@ function call(fn, ...args){ return requestApi(fn, args, {overlay:true, toastErro
 function callQuiet(fn, ...args){ return requestApi(fn, args, {overlay:false, toastErrors:false}); }
 function clearAdminSessionLocal(){
   adminToken=''; adminUsername=''; adminUnlocked=false; adminDataLoaded=false; adminDataLoading=false;
+  leaveApprovalDataLoaded=false; leaveApprovalDataLoading=false;
   auditLoaded=false; state.auditLog=[]; state.adminSession=null;
   safeSessionRemove('rotaAdminToken'); safeSessionRemove('rotaAdminUsername'); refreshNav();
 }
@@ -431,12 +434,13 @@ function adminCall(fn, ...args){
 async function loadAdminData(){
   const publicTeams=state.teams||[], publicConsultants=state.consultants||[];
   try{
-    const data = await call('getAdminData', adminToken);
+    const data = await call('getAdminData', adminToken, 'dashboard');
     state.adminTeams=data.teams||[]; state.adminConsultants=data.consultants||[]; state.adminLeaveRequests=data.leaveRequests||[];
     Object.assign(state, data);
     state.teams=publicTeams.length?publicTeams:(data.allTeams||data.teams||[]);
     state.consultants=publicConsultants.length?publicConsultants:(data.consultants||[]);
     adminUnlocked = true; adminDataLoaded = true; refreshNav();
+    leaveApprovalDataLoaded = !!data.leaveRequestsIncluded;
     safeSessionSet('rotaAdminToken', adminToken); safeSessionSet('rotaAdminUsername', adminUsername || (data.adminSession&&data.adminSession.username)||'');
     return data;
   }catch(err){
@@ -446,6 +450,33 @@ async function loadAdminData(){
     }
     throw err;
   }
+}
+
+async function loadLeaveApprovalData(){
+  const publicTeams=state.teams||[], publicConsultants=state.consultants||[];
+  const data = await adminCall('getAdminLeaveData');
+  state.adminSession=data.adminSession||state.adminSession;
+  state.adminTeams=data.teams||[];
+  state.adminConsultants=data.consultants||[];
+  state.adminLeaveRequests=data.leaveRequests||[];
+  state.allTeams=data.allTeams||state.allTeams||[];
+  state.teams=publicTeams.length?publicTeams:(data.allTeams||data.teams||[]);
+  state.consultants=publicConsultants.length?publicConsultants:(data.consultants||[]);
+  leaveApprovalDataLoaded=!!data.leaveRequestsIncluded;
+  return data;
+}
+
+async function ensureLeaveApprovalDataLoaded(force=false){
+  if(!adminUnlocked || leaveApprovalDataLoading || (!force && leaveApprovalDataLoaded)) return;
+  leaveApprovalDataLoading=true;
+  renderRequests();
+  try{ await loadLeaveApprovalData(); }
+  finally{ leaveApprovalDataLoading=false; if(currentTab==='requests') renderRequests(); }
+}
+
+async function refreshLeaveApprovalData(){
+  leaveApprovalDataLoaded=false;
+  await ensureLeaveApprovalDataLoaded(true);
 }
 
 function captureAdminPanelState(){
@@ -545,7 +576,8 @@ qsa('nav button').forEach(btn=>btn.addEventListener('click',()=>showTab(btn.data
 async function showTab(tab){
   if((tab==='settings' || tab==='requests' || tab==='editor') && !adminUnlocked){ tab='admin'; }
   currentTab=tab; refreshNav(); qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab)); qsa('main section').forEach(s=>s.classList.add('hide')); qs(`#tab-${tab}`).classList.remove('hide'); render();
-  if(['admin','settings','requests','editor'].includes(tab)) await ensureAdminDataLoaded();
+  if(['admin','settings','editor'].includes(tab)) await ensureAdminDataLoaded();
+  if(tab==='requests') await ensureLeaveApprovalDataLoaded();
   if((tab==='settings' || tab==='editor') && adminUnlocked && !isMainAdmin()){
     toast('This section is for the main admin only.');
     currentTab='admin'; refreshNav(); qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab==='admin')); qsa('main section').forEach(sec=>sec.classList.add('hide')); qs('#tab-admin').classList.remove('hide'); renderAdmin();
@@ -657,7 +689,7 @@ function hydrateStartupCache_(){
 }
 async function load(){
   const hadCache=hydrateStartupCache_();
-  state.editorWeekList = null; state.editorWeek = null; adminDataLoaded = false; adminDataLoading = false; auditLoaded=false; state.auditLog=[];
+  state.editorWeekList = null; state.editorWeek = null; adminDataLoaded = false; adminDataLoading = false; leaveApprovalDataLoaded=false; leaveApprovalDataLoading=false; auditLoaded=false; state.auditLog=[];
   if(adminToken) adminUnlocked = true;
   startupRefreshing=true;
   refreshNav(); updateVersionLine(); render();
@@ -692,8 +724,8 @@ async function loginAdmin(){
     const auth=await call('loginAdmin',username,pin);
     adminToken=auth.sessionToken; adminUsername=username; adminUnlocked=true; state.adminSession=auth.adminSession;
     safeSessionSet('rotaAdminToken',adminToken); safeSessionSet('rotaAdminUsername',adminUsername);
-    adminDataLoaded=false; await loadAdminData();
-    toast((isMainAdmin()?'Main admin':'Team sub-admin')+' login successful.'); showTab('admin');
+    adminDataLoaded=false; leaveApprovalDataLoaded=false;
+    toast((isMainAdmin()?'Main admin':'Team sub-admin')+' login successful.'); await showTab('admin');
   }catch(e){ clearAdminSessionLocal(); }
 }
 async function logoutAdmin(){
@@ -1073,9 +1105,14 @@ function renderTeamsList(){
 
 
 function renderAssignmentStoragePanel(){
+  if(!state.assignmentStorage) return `<div class="card"><h2>Assignment Storage</h2><p class="sub">Storage statistics are loaded only when needed.</p><button class="btn secondary" onclick="loadAssignmentStorageSummary()">Load Storage Details</button></div>`;
   const s=state.assignmentStorage||{};
   const historical=Number(s.historicalRowsReadyToArchive||0);
   return `<div class="card"><h2>Assignment Storage</h2><p class="sub">The current official amendment and any draft stay in the live RotaAssignments sheet. Older amendments are stored in a separate archive spreadsheet for their rota period.</p><div class="stats"><div class="stat"><b>${esc(Number(s.liveRows||0))}</b><span>Live assignment rows</span></div><div class="stat"><b>${esc(Number(s.historicalVersionsReadyToArchive||0))}</b><span>Historical versions ready</span></div><div class="stat"><b>${esc(historical)}</b><span>Historical rows ready</span></div></div>${historical?`<div class="previewBox"><span class="pill warn">Optional one-time migration</span><p>Back up the production Google Sheet first, then move existing historical rows out of RotaAssignments. Future archived amendments move automatically.</p><button class="btn warn" onclick="archiveHistoryNow()">Archive Existing History</button></div>`:`<p class="small muted">No existing historical assignment rows need migration. Future archived amendments will be moved automatically.</p>`}</div>`;
+}
+async function loadAssignmentStorageSummary(){
+  state.assignmentStorage=await adminCall('getAssignmentStorageSummary');
+  renderAdmin();
 }
 async function archiveHistoryNow(){
   const text=await promptModal('Back up the Google Sheet first. Type ARCHIVE HISTORY exactly to move existing historical amendments out of the live RotaAssignments sheet.','');
@@ -1249,13 +1286,13 @@ async function confirmInactive(){
 
 function renderRequests(){
   if(!adminUnlocked){ qs('#tab-requests').innerHTML = ''; return; }
-  if(adminDataLoading || !adminDataLoaded){ qs('#tab-requests').innerHTML = '<div class="card"><h2>Leave Approval</h2><p class="sub">Loading leave requests…</p></div>'; return; }
+  if(leaveApprovalDataLoading || !leaveApprovalDataLoaded){ qs('#tab-requests').innerHTML = '<div class="card"><h2>Leave Approval</h2><p class="sub">Loading leave requests…</p></div>'; return; }
   const adminLeaves=state.adminLeaveRequests||state.leaveRequests||[];
   const pending = adminLeaves.filter(l=>l.Status==='Pending');
   const approved = adminLeaves.filter(l=>l.Status==='Approved');
   const history = adminLeaves.filter(l=>!['Pending','Approved'].includes(l.Status)).slice().sort((a,b)=>String(b.AdminDecisionDate||b.SubmittedAt||'').localeCompare(String(a.AdminDecisionDate||a.SubmittedAt||''))).slice(0,30);
   const scope = isMainAdmin() ? 'All teams' : `Assigned team only: ${esc((state.adminSession||{}).teamName || '')}`;
-  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshAdminState()">Refresh Leave Data</button></div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
+  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshLeaveApprovalData()">Refresh Leave Data</button></div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
 }
 function renderLeaveRequestCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="previewLeave('${esc(l.LeaveID)}')">Preview</button><button class="btn ok" onclick="approveLeaveReq('${esc(l.LeaveID)}')">Approve</button><button class="btn bad" onclick="rejectLeaveReq('${esc(l.LeaveID)}')">Reject</button></div><div id="preview-${esc(l.LeaveID)}"></div></div>`;
@@ -1268,9 +1305,9 @@ function renderLeaveHistoryCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}</div>`;
 }
 async function previewLeave(id){ const r=await adminCall('previewLeaveImpact',id); qs(`#preview-${id}`).innerHTML=renderImpact(r); }
-async function approveLeaveReq(id){ const reason=(await promptModal('Override/admin note if needed. Leave blank if not needed.',''))||''; const r=await adminCall('approveLeave',id,reason); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); renderRequests(); }
-async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rejection?',''))||''; const r=await adminCall('rejectLeave',id,note); toast(r.message); await refreshAdminState({auditChanged:true}); renderRequests(); }
-async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?',''))||''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); renderRequests(); }
+async function approveLeaveReq(id){ const reason=(await promptModal('Override/admin note if needed. Leave blank if not needed.',''))||''; const r=await adminCall('approveLeave',id,reason); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
+async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rejection?',''))||''; const r=await adminCall('rejectLeave',id,note); toast(r.message); auditLoaded=false; await refreshLeaveApprovalData(); }
+async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?',''))||''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
 function renderImpact(r){
   const cls = r.level==='Conflict'?'bad':r.level==='Warning'?'warn':r.level==='Safe'?'ok':'blue';
   return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p>${r.preview && r.preview.length ? r.preview.map(p=>`<div class="teamblock"><b>Week ${esc(p.weekNo)}</b><div class="small muted">${esc(p.period)}</div><div class="assignment"><b>Inpatient:</b> ${list(p.Team)}</div><div class="assignment"><b>OPD:</b> ${list(p.OPD)}</div><div class="assignment"><b>Off-duty:</b> ${list(p['Off-duty'])}</div><div class="assignment"><b>Leave:</b> ${list(p.Leave)}</div><div class="assignment"><b>Inactive:</b> ${list(p.Inactive)}</div></div>`).join('') : ''}${r.conflicts && r.conflicts.length ? `<h3>Warnings / conflicts</h3><ul>${r.conflicts.map(c=>`<li><b>${esc(c.Level)}</b> Week ${esc(c.WeekNo)}: ${esc(c.Message)}</li>`).join('')}</ul>` : ''}</div>`;

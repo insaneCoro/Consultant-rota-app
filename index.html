@@ -143,20 +143,52 @@
     .modalCard input{margin-bottom:4px}
     .modalActions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 
-    .globalLoader{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.22);z-index:80;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
-    .loaderCard{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-pop);padding:18px 20px;display:flex;align-items:center;gap:12px;color:var(--brand);font-weight:900}
-    .spinner{width:28px;height:28px;border-radius:50%;border:3px solid #dbe3ef;border-top-color:var(--brand);animation:spin .85s linear infinite}
+
+    /* v1.1 live-safe UI/performance patch */
+    .loadingOverlay{position:fixed;inset:0;background:rgba(15,23,42,.32);display:flex;align-items:center;justify-content:center;z-index:80;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);padding:18px}
+    .loadingBox{width:min(320px,calc(100vw - 32px));background:#fff;border-radius:20px;padding:20px;text-align:center;box-shadow:var(--shadow-pop);border-top:4px solid var(--gold)}
+    .spinner{width:42px;height:42px;border-radius:50%;border:4px solid #e5e7eb;border-top-color:var(--brand);margin:0 auto 12px;animation:spin .85s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
+    .loadingBox b{display:block;color:var(--brand);font-size:15px;margin-bottom:4px}
+    .loadingBox span{font-size:12px;color:var(--muted)}
+    .adminSections{display:grid;gap:12px}
+    .adminPanel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);overflow:hidden}
+    .adminPanel summary{list-style:none;cursor:pointer;padding:15px 16px;font-weight:900;color:var(--brand);display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .adminPanel summary::-webkit-details-marker{display:none}
+    .adminPanel summary::after{content:'+';font-size:20px;color:var(--gold);font-weight:900}
+    .adminPanel[open] summary::after{content:'–'}
+    .adminPanelBody{padding:0 16px 16px}
+    .adminPanelBody>.card{box-shadow:none;border-radius:var(--radius-md)}
+    .viewNotice{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:var(--radius-md);padding:10px 12px;color:var(--muted);font-size:12px;line-height:1.45;margin-top:10px}
+    .headerMeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+    .metaBadge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 8px;background:rgba(255,255,255,.12);color:#fff;font-size:10px;font-weight:800}
+    .metaBadge.offline{background:#b91c1c}
+    .auditDetails{white-space:pre-wrap;overflow-wrap:anywhere;max-width:420px}
+    @media(max-width:760px){
+      .adminPanel summary{position:sticky;top:0;background:#fff;z-index:1}
+      .adminPanel .btns{display:grid;grid-template-columns:1fr;gap:8px}
+      .adminPanel .btns .btn,.adminPanel .btns a.btn{width:100%;text-align:center;box-sizing:border-box}
+      .adminTable.scroll{overflow:visible}
+      .adminTable table,.adminTable tbody,.adminTable tr,.adminTable td{display:block;width:100%}
+      .adminTable tr:first-child{display:none}
+      .adminTable tr{border:1px solid var(--line);border-radius:14px;background:#fff;margin:10px 0;padding:10px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+      .adminTable td{border-bottom:0;padding:7px 0}
+      .adminTable td::before{content:attr(data-label);display:block;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px}
+      .adminTable input,.adminTable select{min-width:0!important}
+      .roleGrid{grid-template-columns:1fr}
+      .roleTile.span2{grid-column:auto}
+    }
+
   </style>
 </head>
 <body>
-  <div id="globalLoader" class="globalLoader hide"><div class="loaderCard"><span class="spinner"></span><span id="loaderText">Loading…</span></div></div>
   <header>
     <div class="headerRow">
-      <img class="brandLogo" src="data:image/png;base64,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" alt="">
+      <img class="brandLogo" src="icons/app-logo.png" alt="">
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
+        <div class="headerMeta"><span id="appVersionBadge" class="metaBadge">Version…</span><span id="connectionBadge" class="metaBadge">Online</span></div>
       </div>
       <button class="headerRefreshBtn" onclick="hardReloadApp()" title="Reload app to get the latest version" aria-label="Reload app">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
@@ -182,9 +214,10 @@
     </main>
   </div>
   <div id="toast" class="toast"></div>
+  <div id="loadingOverlay" class="loadingOverlay hide"><div class="loadingBox"><div class="spinner"></div><b id="loadingMessage">Loading rota system…</b><span>Please wait</span></div></div>
 
 <script>
-let state = { teams: [], consultants: [], leaveRequests: [], rotaVersions: [], latestVersion: null, latestRota: {meta:null,weeks:[],notLoaded:true}, latestConflicts: [], editorWeekList: null, editorWeek: null, latestExport: null };
+let state = { teams: [], consultants: [], leaveRequests: [], rotaPeriods: [], rotaVersions: [], latestVersion: null, latestRota: {meta:null,weeks:[],notLoaded:true,viewMode:'empty'}, latestConflicts: [], editorWeekList: null, editorWeek: null, latestExport: null, auditLog: [] };
 let rotaTeamFilter = 'ALL';
 let rotaLoading = false;
 let editorLoading = false;
@@ -196,18 +229,25 @@ let leaveStatusConsultantId = '';
 let leaveRequestSeq = 0;
 let editorWeekNo = '';
 let editorTeamId = '';
-let loadingCount = 0;
-let adminDataLoaded = false;
-function safeSessionGet(key){ try{ return sessionStorage.getItem(key) || ''; }catch(e){ return ''; } }
-function safeSessionSet(key,value){ try{ sessionStorage.setItem(key,value); }catch(e){} }
-function safeSessionRemove(key){ try{ sessionStorage.removeItem(key); }catch(e){} }
-function safeLocalGet(key){ try{ return localStorage.getItem(key) || ''; }catch(e){ return ''; } }
-function safeLocalSet(key,value){ try{ localStorage.setItem(key,value); }catch(e){} }
-function safeLocalRemove(key){ try{ localStorage.removeItem(key); }catch(e){} }
+function safeSessionGet(key){ try { return window.sessionStorage ? (sessionStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
+function safeSessionSet(key,value){ try { if(window.sessionStorage) sessionStorage.setItem(key,value); } catch(e){} }
+function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.removeItem(key); } catch(e){} }
 let adminPin = safeSessionGet('rotaAdminPin');
 let adminUnlocked = !!adminPin;
+let adminDataLoaded = false;
+let adminDataLoading = false;
+let loadingCount = 0;
+let auditLoaded = false;
+let auditLoading = false;
 function refreshNav(){
-  qsa('.admin-only').forEach(el=>el.classList.toggle('hide', !adminUnlocked));
+  const session = state.adminSession || {};
+  const main = !!session.isMainAdmin;
+  const requestsBtn = document.querySelector('nav button[data-tab="requests"]');
+  const editorBtn = document.querySelector('nav button[data-tab="editor"]');
+  const settingsBtn = document.querySelector('nav button[data-tab="settings"]');
+  if(requestsBtn) requestsBtn.classList.toggle('hide', !adminUnlocked);
+  if(editorBtn) editorBtn.classList.toggle('hide', !adminUnlocked || !main);
+  if(settingsBtn) settingsBtn.classList.toggle('hide', !adminUnlocked || !main);
   const adminBtn = document.querySelector('nav button[data-tab="admin"]');
   const adminLabel = adminBtn && adminBtn.querySelector('.navLabel');
   if(adminLabel) adminLabel.textContent = adminUnlocked ? 'Admin Dashboard' : 'Admin Login';
@@ -223,6 +263,18 @@ function chip(person){ const name=typeof person==='string'?person:(person.name||
 function teamBadge(t){ const color=cleanColor(t.teamColor || t.ColorHex || '#0f172a','#0f172a'); return `<span class="teamName" style="background:${esc(color)};color:${contrastColor(color)}">${esc(t.teamName || t.TeamName)}</span>`; }
 function tintBg_(hex, alpha){ const c=cleanColor(hex).replace('#',''); const r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16); return `rgba(${r},${g},${b},${alpha})`; }
 function toast(msg){ const t=qs('#toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',3500); }
+
+function updateConnectionBadge(){
+  const el=qs('#connectionBadge'); if(!el) return;
+  const online=navigator.onLine !== false;
+  el.textContent=online?'Online':'Offline';
+  el.classList.toggle('offline',!online);
+}
+window.addEventListener('online',updateConnectionBadge);
+window.addEventListener('offline',updateConnectionBadge);
+window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
+window.addEventListener('unhandledrejection',e=>{ const reason=e && e.reason; console.error('Unhandled request error:', reason && reason.message ? reason.message : reason); });
+
 function hardReloadApp(){
   // A plain reload can still be served from cache (or, on iOS, the whole page may have been
   // suspended rather than reloaded at all when reopened from the home screen). Navigating to a
@@ -276,46 +328,53 @@ function statusPill(value){
   else if(['voided','cancelled','rejected','conflict','red','inactive'].includes(key)) cls = 'bad';
   return `<span class="pill ${cls}">${esc(text)}</span>`;
 }
-function setLoading(on, label){
-  loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
-  const active = loadingCount > 0;
-  const app = qs('#app');
-  const loader = qs('#globalLoader');
-  const txt = qs('#loaderText');
-  if(txt && label) txt.textContent = label;
-  if(app) app.classList.toggle('loading', active);
-  if(loader) loader.classList.toggle('hide', !active);
+function apiLoadingMessage(fn){
+  const map={
+    getBootstrap:'Loading rota system…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
+    checkLeaveAvailability:'Checking leave overlap…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
+    exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
+    saveAdminUser:'Saving sub-admin…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
+  };
+  return map[fn] || 'Working…';
 }
-function loadingLabelFor(fn){
-  if(fn === 'getBootstrap') return 'Loading rota system…';
-  if(fn === 'getLatestRotaWindow') return 'Loading current rota…';
-  if(fn === 'getLatestRotaView') return 'Loading full rota…';
-  if(fn === 'exportLatestRota') return 'Preparing rota download…';
-  if(fn === 'getAdminData') return 'Loading admin tools…';
-  return 'Working…';
+function setLoading(on, message){
+  loadingCount = on ? loadingCount + 1 : Math.max(0, loadingCount - 1);
+  const active = loadingCount > 0;
+  const app = qs('#app'); if(app) app.classList.toggle('loading', active);
+  const overlay = qs('#loadingOverlay'); if(overlay) overlay.classList.toggle('hide', !active);
+  const msg = qs('#loadingMessage'); if(active && msg && message) msg.textContent = message;
 }
 // Deployed Apps Script web app URL (Deploy > Manage deployments > Web app URL).
 // Calls go through fetch() as a plain JSON API instead of google.script.run, since this page is
 // hosted outside script.google.com and google.script.run only works inside Apps Script's own
 // sandboxed page. text/plain avoids a CORS preflight request, which Apps Script cannot answer.
 const API_URL = 'https://script.google.com/macros/s/AKfycbzqRHxOZDJDrUXHm7KoZonSQ4MNoGS7dNBkz_-SrkDxBzaO_zm2p1LMuR6b9Lr7fcA/exec';
-async function call(fn, ...args){
-  setLoading(true, loadingLabelFor(fn));
-  try{
-    const r = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ fn: fn, args: args })
-    });
-    const res = await r.json();
-    if(!res.ok) throw new Error(res.error || 'Request failed.');
-    return res.result;
-  }catch(err){
-    toast(err.message || String(err));
-    throw err;
-  }finally{
-    setLoading(false);
-  }
+function call(fn, ...args){
+  setLoading(true, apiLoadingMessage(fn));
+  const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = setTimeout(()=>{ if(controller) controller.abort(); }, 60000);
+  return fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ fn: fn, args: args }),
+    signal: controller ? controller.signal : undefined
+  })
+    .then(async r => {
+      const text = await r.text();
+      let res;
+      try { res = JSON.parse(text); }
+      catch(e){ throw new Error(`Server returned an unreadable response (${r.status}). Refresh the app and try again.`); }
+      if(!r.ok) throw new Error(res.error || `Server request failed (${r.status}).`);
+      if(!res.ok) throw new Error(res.error || 'Request failed.');
+      return res.result;
+    })
+    .catch(err => {
+      let message = err && err.name === 'AbortError' ? 'The request took too long and was stopped. Check your connection and try again.' : (err.message || String(err));
+      if(!navigator.onLine) message = 'You appear to be offline. Reconnect to the internet and try again.';
+      toast(message);
+      throw new Error(message);
+    })
+    .finally(() => { clearTimeout(timer); setLoading(false); });
 }
 function adminCall(fn, ...args){
   if(!adminUnlocked || !adminPin){
@@ -334,9 +393,20 @@ async function loadAdminData(){
   safeSessionSet('rotaAdminPin', adminPin);
   return data;
 }
+async function ensureAdminDataLoaded(){
+  if(!adminUnlocked || adminDataLoaded || adminDataLoading) return;
+  adminDataLoading = true;
+  if(currentTab==='admin') renderAdmin();
+  try{ await loadAdminData(); }
+  finally{ adminDataLoading = false; if(['admin','requests','editor','settings'].includes(currentTab)) renderActiveTab(); }
+}
 function consultantName(id){ const c=state.consultants.find(x=>x.ConsultantID===id); return c?c.Name:id; }
-function teamName(id){ const t=state.teams.find(x=>x.TeamID===id); return t?t.TeamName:id; }
+function teamName(id){ const list = state.allTeams || state.teams || []; const t=list.find(x=>x.TeamID===id); return t?t.TeamName:id; }
 function activeTeams(){ return state.teams.filter(t=>t.Active==='Yes'); }
+function isMainAdmin(){ return !!(state.adminSession && state.adminSession.isMainAdmin); }
+function isTeamSubAdmin(){ return !!(state.adminSession && state.adminSession.role === 'TeamAdmin'); }
+function adminScopeText(){ const s=state.adminSession||{}; return s.isMainAdmin ? 'Main Admin · All teams' : `${s.name || 'Team Sub-admin'} · ${s.teamName || s.teamId || 'Assigned team'}`; }
+function allTeamOptions(currentTeamId='', includeBlank=false){ const list = (state.allTeams && state.allTeams.length ? state.allTeams : state.teams).filter(t=>t.Active==='Yes'); return (includeBlank?'<option value="">—</option>':'') + list.map(t=>`<option value="${esc(t.TeamID)}"${selAttr(t.TeamID,currentTeamId)}>${esc(t.TeamName)}</option>`).join(''); }
 function consultantsByTeam(teamId){ return state.consultants.filter(c=>c.TeamID===teamId && (!c.InactiveFrom || c.CurrentStatus !== 'Inactive')); }
 function consultantOptions(teamId, includeBlank=true){
   let list = teamId ? consultantsByTeam(teamId) : state.consultants;
@@ -381,72 +451,49 @@ function rotaManualStartWeek(){
 qsa('nav button').forEach(btn=>btn.addEventListener('click',()=>showTab(btn.dataset.tab)));
 async function showTab(tab){
   if((tab==='settings' || tab==='requests' || tab==='editor') && !adminUnlocked){ tab='admin'; }
-  currentTab=tab;
-  refreshNav();
-  qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-  qsa('main section').forEach(s=>s.classList.add('hide'));
-  qs(`#tab-${tab}`).classList.remove('hide');
-  render();
-  if(['admin','requests','editor','settings'].includes(tab) && adminUnlocked && !adminDataLoaded){
-    try{ await loadAdminData(); render(); }
-    catch(e){ adminPin=''; adminUnlocked=false; adminDataLoaded=false; safeSessionRemove('rotaAdminPin'); refreshNav(); showTab('admin'); return; }
+  currentTab=tab; refreshNav(); qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab)); qsa('main section').forEach(s=>s.classList.add('hide')); qs(`#tab-${tab}`).classList.remove('hide'); render();
+  if(['admin','settings','requests','editor'].includes(tab)) await ensureAdminDataLoaded();
+  if((tab==='settings' || tab==='editor') && adminUnlocked && !isMainAdmin()){
+    toast('This section is for the main admin only.');
+    currentTab='admin'; refreshNav(); qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab==='admin')); qsa('main section').forEach(sec=>sec.classList.add('hide')); qs('#tab-admin').classList.remove('hide'); renderAdmin();
+    return;
   }
-  if(tab==='rota') await ensureLatestRotaWindowLoaded();
+  if(tab==='rota') await ensureLatestRotaLoaded(false);
   if(tab==='editor') await ensureEditorWeekListLoaded();
 }
 
-function updateVersionLine(){ qs('#versionLine').textContent = state.latestVersion ? `Latest official rota: Amendment ${state.latestVersion.AmendmentNo}` : 'No official rota generated yet'; }
-function markRotaStale(){ state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true } : { meta: null, weeks: [] }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
-function rotaCacheKey(mode){ return state.latestVersion && state.latestVersion.VersionID ? `rota:${mode}:${state.latestVersion.VersionID}` : ''; }
-function loadCachedRota(mode){
-  const key = rotaCacheKey(mode); if(!key) return false;
-  const raw = safeLocalGet(key); if(!raw) return false;
-  try{
-    const cached = JSON.parse(raw);
-    if(cached && cached.meta && cached.meta.VersionID === state.latestVersion.VersionID && cached.weeks){
-      state.latestRota = cached;
-      return true;
-    }
-  }catch(e){ safeLocalRemove(key); }
-  return false;
+function updateVersionLine(){
+  const latest=state.latestVersion;
+  const updated=latest && latest.CreatedAt ? ` · Updated ${latest.CreatedAt}` : '';
+  qs('#versionLine').textContent = latest ? `${latest.PeriodName || 'Active rota'} · Amendment ${latest.AmendmentNo}${updated}` : 'No official rota generated yet';
+  const badge=qs('#appVersionBadge'); if(badge) badge.textContent = state.app && state.app.version ? `v${state.app.version}` : 'Version unavailable';
+  updateConnectionBadge();
 }
-function saveCachedRota(mode, data){
-  const key = rotaCacheKey(mode); if(!key || !data || !data.weeks) return;
-  try{ safeLocalSet(key, JSON.stringify(data)); }catch(e){}
-}
-async function ensureLatestRotaWindowLoaded(force=false){
+function markRotaStale(){ state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta: null, weeks: [], viewMode:'empty' }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
+async function ensureLatestRotaLoaded(full=false, refresh=false){
   if(rotaLoading) return;
-  if(!force && state.latestRota && state.latestRota.viewMode==='window' && state.latestRota.weeks && state.latestRota.weeks.length && !state.latestRota.notLoaded) return;
+  const cur = state.latestRota || {weeks:[]};
+  const alreadyWindow = cur.weeks && cur.weeks.length && cur.viewMode==='window' && !cur.notLoaded;
+  const alreadyFull = cur.weeks && cur.weeks.length && cur.viewMode==='full' && !cur.notLoaded;
+  if(!refresh && ((full && alreadyFull) || (!full && alreadyWindow))) return;
   if(!state.latestVersion){ renderRota(); return; }
-  if(!force && loadCachedRota('window')){ renderRota(); return; }
   rotaLoading = true; renderRota();
   try{
-    const r = await call('getLatestRotaWindow');
+    const r = await call(full ? 'getLatestRotaView' : 'getLatestRotaWindow');
     state.latestRota = r || {meta:null,weeks:[]};
+    state.latestRota.viewMode = full ? 'full' : 'window';
+    state.latestRota.notLoaded = false;
     state.latestVersion = state.latestRota.meta || state.latestVersion;
-    saveCachedRota('window', state.latestRota);
     updateVersionLine();
   }
   finally{ rotaLoading = false; if(currentTab==='rota') renderRota(); }
 }
-async function ensureLatestRotaLoaded(force=false){
-  if(rotaLoading) return;
-  if(!force && state.latestRota && state.latestRota.viewMode==='full' && state.latestRota.weeks && state.latestRota.weeks.length && !state.latestRota.notLoaded) return;
-  if(!state.latestVersion){ renderRota(); return; }
-  if(!force && loadCachedRota('full')){ renderRota(); return; }
-  rotaLoading = true; renderRota();
-  try{
-    const r = await call('getLatestRotaView');
-    state.latestRota = r || {meta:null,weeks:[]};
-    state.latestRota.viewMode = 'full';
-    state.latestVersion = state.latestRota.meta || state.latestVersion;
-    saveCachedRota('full', state.latestRota);
-    updateVersionLine();
-  }
-  finally{ rotaLoading = false; if(currentTab==='rota') renderRota(); }
+async function refreshRotaWindow(){
+  state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta:null, weeks:[], viewMode:'empty' };
+  await ensureLatestRotaLoaded(false, true);
 }
 async function ensureEditorWeekListLoaded(){
-  if(!adminUnlocked) return;
+  if(!adminUnlocked || !isMainAdmin()) return;
   if(editorLoading) return;
   if(state.editorWeekList && state.editorWeekList.weeks) return;
   editorLoading = true; renderRotaEditor();
@@ -482,15 +529,19 @@ async function loadEditorWeekTeam(weekNo, teamId){
 async function load(){
   try{
     state = await call('getBootstrap');
-    state.editorWeekList = null; state.editorWeek = null; rotaTeamFilter = 'ALL'; adminDataLoaded = false;
+    state.editorWeekList = null; state.editorWeek = null; rotaTeamFilter = 'ALL'; adminDataLoaded = false; adminDataLoading = false; auditLoaded=false; state.auditLog=[]; state.adminSession = null;
+    if(adminPin){ adminUnlocked = true; refreshNav(); }
     refreshNav();
     updateVersionLine();
-    const hadCached = currentTab === 'rota' ? loadCachedRota('window') : false;
     render();
-    if(currentTab==='rota' && !hadCached) await ensureLatestRotaWindowLoaded();
+    if(currentTab==='rota') await ensureLatestRotaLoaded(false);
   }catch(e){
-    qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup required</h2><p class="sub">Create the HTML file named Index, then initialize from the Admin tab.</p></div>`;
-    showTab('settings');
+    currentTab='rota';
+    qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab==='rota'));
+    qsa('main section').forEach(sec=>sec.classList.add('hide'));
+    const rota=qs('#tab-rota');
+    rota.classList.remove('hide');
+    rota.innerHTML = `<div class="card"><h2>Unable to load the rota</h2><p class="sub">${esc((e&&e.message)||'The rota server could not be reached.')}</p><div class="btns"><button class="btn" onclick="load()">Try Again</button><button class="btn secondary" onclick="hardReloadApp()">Reload App</button></div><p class="small muted">Check the internet connection and confirm the Apps Script deployment is active.</p></div>`;
   }
 }
 async function setup(){ const r=await adminCall('setupDatabaseAdmin'); toast(r.message); await load(); }
@@ -498,12 +549,12 @@ async function loginAdmin(){
   const pin = (qs('#adminPin') && qs('#adminPin').value || '').trim();
   if(!pin){ toast('Enter admin PIN.'); return; }
   adminPin = pin;
-  try{ await loadAdminData(); toast('Admin login successful.'); showTab('admin'); }
-  catch(e){ adminPin=''; adminUnlocked=false; adminDataLoaded=false; safeSessionRemove('rotaAdminPin'); refreshNav(); }
+  try{ adminDataLoaded=false; await loadAdminData(); toast((isMainAdmin() ? 'Main admin' : 'Team sub-admin') + ' login successful.'); showTab('admin'); }
+  catch(e){ adminPin=''; adminUnlocked=false; safeSessionRemove('rotaAdminPin'); refreshNav(); }
 }
-function logoutAdmin(){ adminPin=''; adminUnlocked=false; adminDataLoaded=false; safeSessionRemove('rotaAdminPin'); refreshNav(); toast('Signed out from Admin.'); showTab('rota'); }
+function logoutAdmin(){ adminPin=''; adminUnlocked=false; adminDataLoaded=false; adminDataLoading=false; auditLoaded=false; state.auditLog=[]; state.adminSession=null; safeSessionRemove('rotaAdminPin'); refreshNav(); toast('Signed out from Admin.'); showTab('rota'); }
 function renderAdminLock(title='Admin Login'){
-  return `<div class="card"><h2>${esc(title)}</h2><p class="sub">Enter the admin PIN to open admin tools. Default PIN is 1234; change it after first login.</p><label>Admin PIN</label><input id="adminPin" type="password" inputmode="numeric" placeholder="Admin PIN"><div class="btns"><button class="btn" onclick="loginAdmin()">Login</button><button class="btn secondary" onclick="load()">Refresh</button></div></div>`;
+  return `<div class="card"><h2>${esc(title)}</h2><p class="sub">Enter the main admin PIN or a team sub-admin PIN.</p><label>Admin / sub-admin PIN</label><input id="adminPin" type="password" inputmode="numeric" placeholder="Admin or sub-admin PIN"><div class="btns"><button class="btn" onclick="loginAdmin()">Login</button><button class="btn secondary" onclick="load()">Refresh</button></div></div>`;
 }
 
 function render(){ renderActiveTab(); }
@@ -520,29 +571,30 @@ function renderRota(){
   const meta = (state.latestRota && state.latestRota.meta) || state.latestVersion;
   const allWeeks = (state.latestRota && state.latestRota.weeks) || [];
   const weeks = rotaFilteredWeeks(allWeeks);
-  const mode = (state.latestRota && state.latestRota.viewMode) || 'window';
-  const isFull = mode === 'full';
-  const win = (state.latestRota && state.latestRota.window) || null;
-  const notLoaded = meta && (!allWeeks.length || (state.latestRota && state.latestRota.notLoaded));
+  const isWindow = state.latestRota && state.latestRota.viewMode === 'window';
+  const isFull = state.latestRota && state.latestRota.viewMode === 'full';
+  const summary = state.latestRota && state.latestRota.summary;
   const exportBox = state.latestExport ? renderExportReadyBox(state.latestExport) : '';
   const filterBar = allWeeks.length ? `<div class="card"><label>Team</label><select onchange="onRotaTeamFilterChange(this)">${rotaTeamFilterOptions()}</select></div>` : '';
-  const viewNote = win && win.message ? `<p class="sub">${esc(win.message)}${win.startWeekNo ? ` Showing Week ${esc(win.startWeekNo)}–${esc(win.endWeekNo)} of ${esc(win.totalWeeks)}.` : ''}</p>` : (isFull ? '<p class="sub">Full rota view is loaded.</p>' : '');
+  const notice = allWeeks.length && isWindow ? `<div class="viewNotice">${esc(summary || 'Showing current week and upcoming weeks. Use View Full 52-Week Rota if you need the complete rota.')}</div>` : '';
   const body = rotaLoading
-    ? '<div class="card"><div class="loaderCard" style="box-shadow:none;border:0;padding:4px 0"><span class="spinner"></span><span>Loading rota…</span></div></div>'
+    ? '<div class="card"><p class="muted">Loading latest rota…</p></div>'
     : !allWeeks.length
-      ? `<div class="card"><p class="muted">${meta ? 'Loading current and upcoming weeks…' : 'Generate a rota from the Admin tab.'}</p></div>`
+      ? `<div class="card"><p class="muted">${meta ? 'Loading the current and upcoming rota weeks…' : 'Generate a rota from the Admin tab.'}</p></div>`
       : adminUnlocked
         ? renderRotaTable(weeks)
         : weeks.map(renderWeekCard).join('');
   qs('#tab-rota').innerHTML = `
     <div class="card">
-      <h2>${isFull ? 'Full Rota' : 'Current / Upcoming Rota'}</h2>
-      ${meta ? `<p class="sub">Amendment No. ${esc(meta.AmendmentNo)} · ${esc(meta.StartDate)} to ${esc(meta.EndDate)}</p>` : `<p class="sub">No rota generated yet.</p>`}
-      ${viewNote}
+      <h2>Latest Rota</h2>
+      ${meta ? `<p class="sub"><b>${esc(meta.PeriodName || 'Active rota period')}</b> · Amendment No. ${esc(meta.AmendmentNo)} · ${esc(meta.StartDate)} to ${esc(meta.EndDate)}</p>` : `<p class="sub">No rota generated yet.</p>`}
+      ${notice}
       <div class="btns">
         <button class="btn blue" onclick="downloadLatest()" ${meta?'':'disabled'}>Prepare Latest Rota Download</button>
-        <button class="btn secondary" onclick="ensureLatestRotaWindowLoaded(true)" ${meta?'':'disabled'}>${rotaLoading && !isFull ? 'Loading…' : 'Refresh Current / Upcoming'}</button>
-        <button class="btn secondary" onclick="ensureLatestRotaLoaded(true)" ${meta?'':'disabled'}>${rotaLoading && isFull ? 'Loading…' : 'View Full 52-Week Rota'}</button>
+        ${meta ? (isFull
+          ? `<button class="btn secondary" onclick="ensureLatestRotaLoaded(true,true)">Refresh Full Rota</button><button class="btn secondary" onclick="refreshRotaWindow()">Back to Current Weeks</button>`
+          : `<button class="btn secondary" onclick="ensureLatestRotaLoaded(true,true)">View Full 52-Week Rota</button><button class="btn secondary" onclick="refreshRotaWindow()">Refresh Current Weeks</button>`)
+          : ''}
       </div>
     </div>
     ${filterBar}
@@ -764,35 +816,110 @@ function renderUserLeaveCheck(r){
 
 function renderAdmin(){
   if(!adminUnlocked){ qs('#tab-admin').innerHTML = renderAdminLock('Admin Login'); return; }
+  if(adminDataLoading || !adminDataLoaded){ qs('#tab-admin').innerHTML = `<div class="card"><h2>Admin Panel</h2><p class="sub">Loading admin tools for this browser session…</p><div class="previewBox"><span class="pill warn">Loading</span> Please wait.</div></div>`; return; }
+  if(!isMainAdmin()){
+    const s = state.adminSession || {};
+    qs('#tab-admin').innerHTML = `
+      <div class="card"><h2>Team Sub-admin Panel</h2><p class="sub">Signed in as <b>${esc(s.name || 'Team Sub-admin')}</b>. Scope: <b>${esc(s.teamName || s.teamId || 'Assigned team')}</b>.</p><div class="btns"><button class="btn secondary" onclick="adminDataLoaded=false; ensureAdminDataLoaded()">Refresh Leave Data</button><button class="btn ok" onclick="showTab('requests')">Open Leave Approval</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div><p class="small muted">Sub-admin access is limited to approving/rejecting leave requests for the assigned team. Rota generation, manual edit, setup, and archive controls remain main-admin only.</p></div>
+      <div class="adminSections">
+        <details class="adminPanel" open><summary>Team Leave Approval</summary><div class="adminPanelBody"><div class="card"><h2>Assigned Team</h2><p>${esc(s.teamName || s.teamId || '-')}</p><div class="btns"><button class="btn ok" onclick="showTab('requests')">Review Pending Leave</button></div></div></div></details>
+        <details class="adminPanel"><summary>Team Rota Warnings</summary><div class="adminPanelBody">${renderLatestConflicts()}</div></details>
+      </div>`;
+    return;
+  }
   qs('#tab-admin').innerHTML = `
-    <div class="card"><h2>Admin Dashboard</h2><p class="sub">You are signed in as admin for this browser session.</p><div class="btns"><button class="btn secondary" onclick="load()">Refresh</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div></div>
-    ${renderLatestConflicts()}
-    <div class="card"><h2>Create Team</h2><label>Team name</label><input id="teamName" placeholder="Team A"><label>Team color</label><input type="color" id="teamColor" value="#0f172a"><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}</div>
-    <div class="card"><h2>Add Consultant</h2><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div><div><label>Active from</label><input type="date" id="activeFrom"></div></div><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div>
-    <div class="card"><h2>Generate New Rota</h2><p class="sub dangerText">Choose all teams for a fresh rota, or choose one team only when a team is added during the year. One-team generation creates a new amendment and keeps other teams unchanged.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Generate Rota</button></div></div>
-    <div class="card"><h2>Rota Versions</h2><p class="sub">Use this if something went wrong. Official/archived versions are voided, not permanently deleted.</p>${renderVersionsList()}<div class="previewBox"><b>Danger zone</b><p class="small muted">Clears generated rota versions, assignments, conflicts, and override logs only. Teams, consultants, and leave requests remain.</p><button class="btn bad" onclick="resetRotaOnly()">Clear Generated Rota</button></div></div>
-    <div class="card"><h2>Mark Consultant Inactive</h2><label>Consultant</label><select id="inactiveConsultant">${consultantOptions('', true)}</select><div class="row"><div><label>Inactive from</label><input type="date" id="inactiveFrom"></div><div><label>Reason / note</label><input id="inactiveNote"></div></div><div class="btns"><button class="btn secondary" onclick="previewInactive()">Preview Impact</button><button class="btn bad" onclick="confirmInactive()">Confirm Inactive</button></div><div id="inactivePreview"></div></div>`;
+    <div class="card"><h2>Admin Panel</h2><p class="sub">You are signed in as <b>${esc(adminScopeText())}</b>. Sections are separated for easier mobile use.</p><div class="btns"><button class="btn secondary" onclick="adminDataLoaded=false; ensureAdminDataLoaded()">Refresh Admin Data</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div></div>
+    <div class="adminSections">
+      <details class="adminPanel" open><summary>Rota Status & Conflicts</summary><div class="adminPanelBody">${renderLatestConflicts()}</div></details>
+      <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}</div></div></details>
+      <details class="adminPanel"><summary>Consultant Settings</summary><div class="adminPanelBody"><div class="card"><h2>Add Consultant</h2><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Consultant type</label><select id="consultantType">${consultantTypeOptions('Regular')}</select></div><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div></div><label>Active from</label><input type="date" id="activeFrom"><p class="small muted">A special consultant is normally assigned to inpatient Team every 6 weeks. In other weeks, the normal Can Off-duty setting still applies.</p><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div></div></details>
+      <details class="adminPanel"><summary>Sub-admin Users</summary><div class="adminPanelBody">${renderAdminUsersPanel()}</div></details>
+      <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: Consultant Rota 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
+      <details class="adminPanel"><summary>Rota Periods, Versions & Archive</summary><div class="adminPanelBody"><div class="card"><h2>Rota Periods and Amendments</h2><p class="sub">Each rota period has its own amendment numbering. New periods begin at Amendment 1. Archived periods remain available for audit and controlled restoration.</p>${renderVersionsList()}</div></div></details>
+      <details class="adminPanel"><summary>Mark Consultant Inactive</summary><div class="adminPanelBody"><div class="card"><h2>Mark Consultant Inactive</h2><label>Consultant</label><select id="inactiveConsultant">${consultantOptions('', true)}</select><div class="row"><div><label>Inactive from</label><input type="date" id="inactiveFrom"></div><div><label>Reason / note</label><input id="inactiveNote"></div></div><div class="btns"><button class="btn secondary" onclick="previewInactive()">Preview Impact</button><button class="btn bad" onclick="confirmInactive()">Confirm Inactive</button></div><div id="inactivePreview"></div></div></div></details>
+      <details class="adminPanel"><summary>Audit Log</summary><div class="adminPanelBody"><div class="card"><h2>Recent Administrative Activity</h2><p class="sub">Records approvals, publishing, manual edits, settings changes, exports, and other important actions. PIN values are never written to this log.</p><div class="btns"><button class="btn secondary" onclick="loadAuditLog(true)">Load / Refresh Audit Log</button></div><div id="auditLogPanel">${renderAuditLog()}</div></div></div></details>
+      <details class="adminPanel"><summary>Danger Zone</summary><div class="adminPanelBody"><div class="card"><h2>Danger Zone</h2><p class="sub dangerText">Clears generated rota periods, versions, assignments, conflicts, and override logs only. Teams, consultants, and leave requests remain.</p><button class="btn bad" onclick="resetRotaOnly()">Clear Generated Rota</button></div></div></details>
+    </div>`;
   renderManualGrid();
 }
+
+async function loadAuditLog(force=false){
+  if(!isMainAdmin()) return;
+  if(auditLoading || (auditLoaded && !force)) return;
+  auditLoading=true;
+  const panel=qs('#auditLogPanel'); if(panel) panel.innerHTML='<p class="muted">Loading audit log…</p>';
+  try{
+    state.auditLog = await adminCall('getAuditLog', 150) || [];
+    auditLoaded=true;
+  }finally{
+    auditLoading=false;
+    const current=qs('#auditLogPanel'); if(current) current.innerHTML=renderAuditLog();
+  }
+}
+function renderAuditLog(){
+  if(auditLoading) return '<p class="muted">Loading audit log…</p>';
+  if(!auditLoaded) return '<p class="muted">The audit log is loaded only when requested.</p>';
+  const rows=state.auditLog||[];
+  if(!rows.length) return '<p class="muted">No audit entries recorded yet.</p>';
+  return `<div class="scroll adminTable"><table><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr>${rows.map(x=>`<tr><td data-label="Time">${esc(x.Timestamp||'-')}</td><td data-label="Actor"><b>${esc(x.ActorName||'-')}</b><div class="small muted">${esc(x.ActorRole||'')} ${x.ActorTeamID?`· ${esc(teamName(x.ActorTeamID))}`:''}</div></td><td data-label="Action">${esc(x.Action||'-')}</td><td data-label="Target">${esc(x.TargetType||'-')}<div class="small muted">${esc(x.TargetID||'')}</div></td><td data-label="Details" class="auditDetails">${esc(x.Details||'-')}</td></tr>`).join('')}</table></div>`;
+}
+
 function renderLatestConflicts(){
   const items = state.latestConflicts || [];
   if(!items.length) return `<div class="card"><h2>Latest Rota Conflicts</h2><p class="sub">No warnings or conflicts recorded for the current official rota.</p></div>`;
-  return `<div class="card"><h2>Latest Rota Conflicts</h2><p class="sub">Shown here for admin review only. They are not printed in the Word/DOCX export.</p><div class="scroll"><table><tr><th>Week</th><th>Team</th><th>Level</th><th>Rule</th><th>Message</th></tr>${items.map(c=>`<tr><td>${esc(c.WeekNo)}</td><td>${esc(c.TeamName || c.TeamID)}</td><td>${statusPill(c.Level==='Red'?'Conflict':c.Level==='Yellow'?'Warning':c.Level)}</td><td>${esc(c.Rule || '-')}</td><td>${esc(c.Message || '-')}</td></tr>`).join('')}</table></div></div>`;
+  return `<div class="card"><h2>Latest Rota Conflicts</h2><p class="sub">Shown here for admin review only. They are not printed in the Word/DOCX export.</p><div class="scroll adminTable"><table><tr><th>Week</th><th>Team</th><th>Level</th><th>Rule</th><th>Message</th></tr>${items.map(c=>`<tr><td data-label="Week">${esc(c.WeekNo)}</td><td data-label="Team">${esc(c.TeamName || c.TeamID)}</td><td data-label="Level">${statusPill(c.Level==='Red'?'Conflict':c.Level==='Yellow'?'Warning':c.Level)}</td><td data-label="Rule">${esc(c.Rule || '-')}</td><td data-label="Message">${esc(c.Message || '-')}</td></tr>`).join('')}</table></div></div>`;
+}
+
+
+function renderAdminUsersPanel(){
+  return `<div class="card"><h2>Create Team Sub-admin</h2><p class="sub">A team sub-admin can approve/reject leave requests only for the assigned team. They cannot generate rota, use manual edit, change setup, or access archive controls.</p><div class="row"><div><label>Name</label><input id="adminUserName" placeholder="Dr. Name"></div><div><label>Assigned team</label><select id="adminUserTeam">${allTeamOptions('', true)}</select></div></div><div class="row"><div><label>PIN</label><input id="adminUserPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"></div><div><label>Active</label><select id="adminUserActive"><option>Yes</option><option>No</option></select></div></div><label>Notes</label><input id="adminUserNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addAdminUser()">Add Sub-admin</button></div>${renderAdminUsersList()}</div>`;
+}
+function renderAdminUsersList(){
+  const users = state.adminUsers || [];
+  if(!users.length) return '<p class="muted">No sub-admin users yet.</p>';
+  return `<div class="scroll adminTable"><table><tr><th>Name</th><th>Team</th><th>PIN</th><th>Active</th><th>Notes</th><th>Action</th></tr>${users.map(u=>`
+    <tr>
+      <td data-label="Name"><input id="auName-${esc(u.UserID)}" value="${esc(u.Name || '')}" style="min-width:130px"></td>
+      <td data-label="Team"><select id="auTeam-${esc(u.UserID)}" style="min-width:130px">${allTeamOptions(u.TeamID, false)}</select></td>
+      <td data-label="PIN"><input id="auPin-${esc(u.UserID)}" type="password" inputmode="numeric" value="${esc(u.PIN || '')}" style="min-width:110px"></td>
+      <td data-label="Active"><select id="auActive-${esc(u.UserID)}" style="min-width:90px">${yesNoOptions(u.Active || 'Yes')}</select></td>
+      <td data-label="Notes"><input id="auNotes-${esc(u.UserID)}" value="${esc(u.Notes || '')}" style="min-width:150px"></td>
+      <td data-label="Action"><button class="btn secondary" onclick="saveAdminUserSettings('${esc(u.UserID)}')">Save sub-admin</button></td>
+    </tr>`).join('')}</table></div>`;
+}
+async function addAdminUser(){
+  const data={Name:qs('#adminUserName').value,TeamID:qs('#adminUserTeam').value,PIN:qs('#adminUserPin').value,Role:'TeamAdmin',Active:qs('#adminUserActive').value,Notes:qs('#adminUserNotes').value};
+  if(!data.Name || !data.TeamID || !data.PIN){ toast('Name, team, and PIN are required.'); return; }
+  const r=await adminCall('saveAdminUser', data); toast(r.message); await load(); showTab('admin');
+}
+async function saveAdminUserSettings(id){
+  const data={UserID:id,Name:qs(`#auName-${id}`).value,TeamID:qs(`#auTeam-${id}`).value,PIN:qs(`#auPin-${id}`).value,Role:'TeamAdmin',Active:qs(`#auActive-${id}`).value,Notes:qs(`#auNotes-${id}`).value};
+  if(!data.Name || !data.TeamID || !data.PIN){ toast('Name, team, and PIN are required.'); return; }
+  const r=await adminCall('saveAdminUser', data); toast(r.message); await load(); showTab('admin');
 }
 
 function renderTeamsList(){
-  return state.teams.length ? `<div class="scroll"><table><tr><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map(t=>`<tr><td>${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}</td><td><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td>${esc(t.Active)}</td><td><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save color</button></td></tr>`).join('')}</table></div>` : '<p class="muted">No teams yet.</p>';
+  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}</td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
 }
 
 function renderVersionsList(){
   const versions = state.rotaVersions || [];
-  if(!versions.length) return '<p class="muted">No rota versions yet.</p>';
-  return `<div class="scroll"><table><tr><th>Amend.</th><th>Status</th><th>Type</th><th>Effective</th><th>Reason</th><th>Action</th></tr>${versions.map(v=>{
-    const canRestore = v.Status !== 'Official' && v.Status !== 'Voided';
-    const canVoid = v.Status !== 'Voided';
+  if(!versions.length) return '<p class="muted">No rota periods or versions yet.</p>';
+  return `<div class="scroll adminTable"><table><tr><th>Rota Period</th><th>Period Status</th><th>Amend.</th><th>Version Status</th><th>Type</th><th>Effective</th><th>Reason</th><th>Action</th></tr>${versions.map(v=>{
+    const canPublishDraft = v.Status === 'Draft';
+    const canRestore = v.Status === 'Archived';
+    const canVoid = v.Status !== 'Voided' && v.Status !== 'Draft';
     const canDeleteDraft = v.Status === 'Draft';
-    return `<tr><td>${esc(v.AmendmentNo)}</td><td>${statusPill(v.Status)}</td><td>${esc(v.Type || '-')}</td><td>${esc(v.EffectiveFrom || '-')}</td><td>${esc(v.Reason || '-')}</td><td><div class="btns"><button class="btn secondary" onclick="exportSpecificInfo('${esc(v.VersionID)}')">Info</button>${canRestore?`<button class="btn ok" onclick="restoreVersion('${esc(v.VersionID)}')">Restore</button>`:''}${canVoid?`<button class="btn warn" onclick="voidVersion('${esc(v.VersionID)}')">Void</button>`:''}${canDeleteDraft?`<button class="btn bad" onclick="deleteDraftVersion('${esc(v.VersionID)}')">Delete Draft</button>`:''}</div></td></tr>`;
+    return `<tr><td data-label="Rota Period"><b>${esc(v.PeriodName || '-')}</b><div class="small muted">${esc(v.PeriodStartDate || v.StartDate || '')} to ${esc(v.PeriodEndDate || v.EndDate || '')}</div></td><td data-label="Period Status">${statusPill(v.PeriodStatus || '-')}</td><td data-label="Amendment">${esc(v.AmendmentNo)}</td><td data-label="Version Status">${statusPill(v.Status)}</td><td data-label="Type">${esc(v.Type || '-')}</td><td data-label="Effective">${esc(v.EffectiveFrom || '-')}</td><td data-label="Reason">${esc(v.Reason || '-')}</td><td data-label="Action"><div class="btns"><button class="btn secondary" onclick="exportSpecificInfo('${esc(v.VersionID)}')">Info</button>${canPublishDraft?`<button class="btn ok" onclick="publishDraftVersion('${esc(v.VersionID)}')">Publish Draft</button>`:''}${canRestore?`<button class="btn ok" onclick="restoreVersion('${esc(v.VersionID)}')">Restore</button>`:''}${canVoid?`<button class="btn warn" onclick="voidVersion('${esc(v.VersionID)}')">Void</button>`:''}${canDeleteDraft?`<button class="btn bad" onclick="deleteDraftVersion('${esc(v.VersionID)}')">Delete Draft</button>`:''}</div></td></tr>`;
   }).join('')}</table></div>`;
+}
+async function publishDraftVersion(id){
+  const v = (state.rotaVersions || []).find(x=>x.VersionID===id);
+  if(!v){ toast('Draft version not found.'); return; }
+  const newPeriod = String(v.PeriodStatus||'') === 'Draft';
+  const msg = newPeriod ? `Publish ${v.PeriodName || 'this new rota period'}? The current active period will be archived automatically, and Amendment ${v.AmendmentNo} will become live. If the official rota changed after this draft was created, publishing will be blocked.` : `Publish Draft Amendment ${v.AmendmentNo} inside ${v.PeriodName || 'the active rota period'}? Users will see it as the latest official amendment. If the official rota changed after this draft was created, publishing will be blocked.`;
+  if(!(await confirmModal(msg, 'Publish Draft'))) return;
+  const r = await adminCall('publishDraftRota', id); toast(r.message); await load(); showTab('rota');
 }
 async function voidVersion(id){
   const reason = (await promptModal('Reason for voiding this rota version?', 'Generated by mistake')) || '';
@@ -801,7 +928,11 @@ async function voidVersion(id){
 }
 async function restoreVersion(id){
   const reason = (await promptModal('Reason for restoring this rota version?', 'Restored after error')) || '';
-  if(!(await confirmModal('Restore this archived rota as the official latest rota?'))) return;
+  const v = (state.rotaVersions || []).find(x=>x.VersionID===id);
+  const activePeriodId = state.latestVersion && state.latestVersion.PeriodID;
+  const crossPeriod = v && activePeriodId && String(v.PeriodID||'') !== String(activePeriodId);
+  const restoreMsg = crossPeriod ? `Restore Amendment ${v.AmendmentNo} from ${v.PeriodName || 'an archived period'}? This will archive the current active period and reactivate the selected period.` : 'Restore this archived amendment as the official latest amendment within the active rota period?';
+  if(!(await confirmModal(restoreMsg))) return;
   const r = await adminCall('restoreRotaVersion', id, reason); toast(r.message); await load(); showTab('admin');
 }
 async function deleteDraftVersion(id){
@@ -809,7 +940,7 @@ async function deleteDraftVersion(id){
   const r = await adminCall('deleteDraftRota', id); toast(r.message); await load(); showTab('admin');
 }
 async function resetRotaOnly(){
-  const text = await promptModal('This clears generated rota versions and assignments only. Teams, consultants, and leave requests will remain. Type RESET ROTA to confirm.', '');
+  const text = await promptModal('This clears generated rota periods, versions, and assignments only. Teams, consultants, and leave requests will remain. Type RESET ROTA to confirm.', '');
   if(text !== 'RESET ROTA') { toast('Reset cancelled.'); return; }
   const r = await adminCall('resetRotaData', text);
   if(r && r.state){
@@ -827,7 +958,7 @@ async function resetRotaOnly(){
 async function exportSpecificInfo(id){
   const v = (state.rotaVersions || []).find(x=>x.VersionID===id);
   if(!v){ toast('Version not found.'); return; }
-  await alertModal(`Amendment ${v.AmendmentNo}\nStatus: ${v.Status}\nType: ${v.Type || '-'}\nCreated: ${v.CreatedAt || '-'}\nEffective from: ${v.EffectiveFrom || '-'}\nReason: ${v.Reason || '-'}`);
+  await alertModal(`Rota period: ${v.PeriodName || '-'}\nPeriod status: ${v.PeriodStatus || '-'}\nPeriod dates: ${v.PeriodStartDate || v.StartDate || '-'} to ${v.PeriodEndDate || v.EndDate || '-'}\nAmendment: ${v.AmendmentNo}\nVersion status: ${v.Status}\nType: ${v.Type || '-'}\nCreated: ${v.CreatedAt || '-'}\nEffective from: ${v.EffectiveFrom || '-'}\nReason: ${v.Reason || '-'}`);
 }
 
 function consultantTeamOptionsForRow(currentTeamId){
@@ -836,33 +967,39 @@ function consultantTeamOptionsForRow(currentTeamId){
 function yesNoOptions(current){
   return ['Yes','No'].map(v=>`<option value="${v}"${selAttr(v,current)}>${v}</option>`).join('');
 }
+function consultantTypeOptions(current){
+  const value = String(current || 'Regular');
+  return `<option value="Regular"${selAttr('Regular',value)}>Regular</option><option value="Special6"${selAttr('Special6',value)}>Special — Team every 6 weeks</option>`;
+}
 function statusOptions(current){
   return ['Active','Inactive'].map(v=>`<option value="${v}"${selAttr(v,current||'Active')}>${v}</option>`).join('');
 }
 function renderConsultantsList(){
   if(!state.consultants.length) return '<p class="muted">No consultants yet.</p>';
-  return `<div class="scroll"><table><tr><th>Name</th><th>Team</th><th>Can Off-duty?</th><th>Status</th><th>Active from</th><th>Inactive from</th><th>Color</th><th>Notes</th><th>Action</th></tr>${state.consultants.map(c=>`
+  return `<div class="scroll adminTable"><table><tr><th>Name</th><th>Team</th><th>Type</th><th>Can Off-duty?</th><th>Status</th><th>Active from</th><th>Inactive from</th><th>Color</th><th>Notes</th><th>Action</th></tr>${state.consultants.map(c=>`
     <tr>
-      <td><input id="cName-${esc(c.ConsultantID)}" value="${esc(c.Name)}" style="min-width:130px"></td>
-      <td><select id="cTeam-${esc(c.ConsultantID)}" style="min-width:120px">${consultantTeamOptionsForRow(c.TeamID)}</select></td>
-      <td><select id="cOff-${esc(c.ConsultantID)}" style="min-width:90px">${yesNoOptions(c.CanOffDuty)}</select></td>
-      <td><select id="cStatus-${esc(c.ConsultantID)}" style="min-width:110px">${statusOptions(c.CurrentStatus)}</select></td>
-      <td><input type="date" id="cActiveFrom-${esc(c.ConsultantID)}" value="${esc(c.ActiveFrom || '')}" style="min-width:135px"></td>
-      <td><input type="date" id="cInactiveFrom-${esc(c.ConsultantID)}" value="${esc(c.InactiveFrom || '')}" style="min-width:135px"></td>
-      <td><input type="color" id="cColor-${esc(c.ConsultantID)}" value="${esc(cleanColor(c.ColorHex,'#2563eb'))}"></td>
-      <td><input id="cNotes-${esc(c.ConsultantID)}" value="${esc(c.Notes || '')}" style="min-width:150px"></td>
-      <td><button class="btn secondary" onclick="saveConsultantSettings('${esc(c.ConsultantID)}')">Save settings</button></td>
+      <td data-label="Name"><input id="cName-${esc(c.ConsultantID)}" value="${esc(c.Name)}" style="min-width:130px"></td>
+      <td data-label="Team"><select id="cTeam-${esc(c.ConsultantID)}" style="min-width:120px">${consultantTeamOptionsForRow(c.TeamID)}</select></td>
+      <td data-label="Type"><select id="cType-${esc(c.ConsultantID)}" style="min-width:170px">${consultantTypeOptions(c.ConsultantType)}</select></td>
+      <td data-label="Can Off-duty?"><select id="cOff-${esc(c.ConsultantID)}" style="min-width:90px">${yesNoOptions(c.CanOffDuty)}</select></td>
+      <td data-label="Status"><select id="cStatus-${esc(c.ConsultantID)}" style="min-width:110px">${statusOptions(c.CurrentStatus)}</select></td>
+      <td data-label="Active from"><input type="date" id="cActiveFrom-${esc(c.ConsultantID)}" value="${esc(c.ActiveFrom || '')}" style="min-width:135px"></td>
+      <td data-label="Inactive from"><input type="date" id="cInactiveFrom-${esc(c.ConsultantID)}" value="${esc(c.InactiveFrom || '')}" style="min-width:135px"></td>
+      <td data-label="Color"><input type="color" id="cColor-${esc(c.ConsultantID)}" value="${esc(cleanColor(c.ColorHex,'#2563eb'))}"></td>
+      <td data-label="Notes"><input id="cNotes-${esc(c.ConsultantID)}" value="${esc(c.Notes || '')}" style="min-width:150px"></td>
+      <td data-label="Action"><button class="btn secondary" onclick="saveConsultantSettings('${esc(c.ConsultantID)}')">Save settings</button></td>
     </tr>`).join('')}</table></div>`;
 }
-async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,ColorHex:qs('#teamColor').value,Active:'Yes'}); toast(r.message); await load(); showTab('admin'); }
-async function addConsultant(){ const data={Name:qs('#consultantName').value,TeamID:qs('#consultantTeam').value,CanOffDuty:qs('#canOff').value,ColorHex:qs('#consultantColor').value,ActiveFrom:qs('#activeFrom').value,Notes:qs('#consultantNotes').value}; const r=await adminCall('saveConsultant',data); toast(r.message); await load(); showTab('admin'); }
-async function updateTeamColor(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t) return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,ColorHex:qs(`#teamColor-${id}`).value,Active:t.Active}); toast(r.message); await load(); showTab('admin'); }
+async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes'}); toast(r.message); await load(); showTab('admin'); }
+async function addConsultant(){ const data={Name:qs('#consultantName').value,TeamID:qs('#consultantTeam').value,ConsultantType:qs('#consultantType').value,CanOffDuty:qs('#canOff').value,ColorHex:qs('#consultantColor').value,ActiveFrom:qs('#activeFrom').value,Notes:qs('#consultantNotes').value}; const r=await adminCall('saveConsultant',data); toast(r.message); await load(); showTab('admin'); }
+async function updateTeamColor(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t) return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:qs(`#teamOrder-${id}`).value,ColorHex:qs(`#teamColor-${id}`).value,Active:t.Active}); toast(r.message); await load(); showTab('admin'); }
 async function saveConsultantSettings(id){
   const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;
   const data={
     ConsultantID:id,
     Name:qs(`#cName-${id}`).value,
     TeamID:qs(`#cTeam-${id}`).value,
+    ConsultantType:qs(`#cType-${id}`).value,
     CanOffDuty:qs(`#cOff-${id}`).value,
     CurrentStatus:qs(`#cStatus-${id}`).value,
     ActiveFrom:qs(`#cActiveFrom-${id}`).value,
@@ -875,7 +1012,7 @@ async function saveConsultantSettings(id){
 }
 async function updateConsultantColor(id){
   const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;
-  const data={ConsultantID:id,Name:c.Name,TeamID:c.TeamID,CanOffDuty:c.CanOffDuty,ColorHex:qs(`#consultantColor-${id}`).value,CurrentStatus:c.CurrentStatus,ActiveFrom:c.ActiveFrom,InactiveFrom:c.InactiveFrom,Notes:c.Notes};
+  const data={ConsultantID:id,Name:c.Name,TeamID:c.TeamID,ConsultantType:c.ConsultantType||'Regular',CanOffDuty:c.CanOffDuty,ColorHex:qs(`#consultantColor-${id}`).value,CurrentStatus:c.CurrentStatus,ActiveFrom:c.ActiveFrom,InactiveFrom:c.InactiveFrom,Notes:c.Notes};
   const r=await adminCall('saveConsultant',data); toast(r.message); await load(); showTab('admin');
 }
 
@@ -909,12 +1046,12 @@ function collectManualAssignments(){
   return Object.values(map);
 }
 async function generateRota(){
-  const data={teamId:selectedRotaTeamId(),startDate:qs('#rotaStart').value,weeks:Number(qs('#rotaWeeks').value || 52),manualSeedWeeks:Number(qs('#manualWeeks').value || 0),manualAssignments:collectManualAssignments()};
+  const data={teamId:selectedRotaTeamId(),periodName:(qs('#rotaPeriodName')&&qs('#rotaPeriodName').value||'').trim(),startDate:qs('#rotaStart').value,weeks:Number(qs('#rotaWeeks').value || 52),manualSeedWeeks:Number(qs('#manualWeeks').value || 0),manualAssignments:collectManualAssignments()};
   if(!data.startDate){ toast('Choose a start date.'); return; }
   const oneTeam = data.teamId && data.teamId !== 'ALL';
-  const msg = oneTeam ? 'Generate rota for the selected team only? Other teams will be copied unchanged into a new amendment.' : 'Generate a new official rota for all active teams? The current official version will be archived.';
-  const ok=await confirmModal(msg); if(!ok) return;
-  const r=await adminCall('startNewRota',data); toast(r.message); await load(); showTab('rota');
+  const msg = oneTeam ? 'Create a Draft amendment for this team inside the current active rota period? Other teams will be copied unchanged. Users will still see the current official amendment until you publish.' : 'Create a separate new rota period as Draft? The current active period will remain live and will only be archived if you later publish this draft.';
+  const ok=await confirmModal(msg, 'Create Draft'); if(!ok) return;
+  const r=await adminCall('createDraftRota',data); toast(r.message); await load(); showTab('admin');
 }
 async function previewInactive(){
   const data={ConsultantID:qs('#inactiveConsultant').value,InactiveFrom:qs('#inactiveFrom').value,Notes:qs('#inactiveNote').value};
@@ -929,21 +1066,19 @@ async function confirmInactive(){
 
 function renderRequests(){
   if(!adminUnlocked){ qs('#tab-requests').innerHTML = ''; return; }
+  if(adminDataLoading || !adminDataLoaded){ qs('#tab-requests').innerHTML = '<div class="card"><h2>Leave Approval</h2><p class="sub">Loading leave requests…</p></div>'; return; }
   const pending = state.leaveRequests.filter(l=>l.Status==='Pending');
   const approved = state.leaveRequests.filter(l=>l.Status==='Approved');
   const history = state.leaveRequests.filter(l=>!['Pending','Approved'].includes(l.Status)).slice().sort((a,b)=>String(b.AdminDecisionDate||b.SubmittedAt||'').localeCompare(String(a.AdminDecisionDate||a.SubmittedAt||''))).slice(0,30);
-  qs('#tab-requests').innerHTML = `
-    <div class="card"><h2>Leave Approval</h2><p class="sub">Approval creates an amended rota if the leave is inside the current rota period. Cancelling an approved leave creates a new amendment and makes the consultant available again.</p>
-      <h3>Pending</h3>${pending.length ? pending.map(renderLeaveRequestCard).join('') : '<p class="muted">No pending leave requests.</p>'}
-      <h3>Approved archive</h3>${approved.length ? approved.map(renderApprovedLeaveCard).join('') : '<p class="muted">No approved leave in the archive.</p>'}
-      <h3>Recent history</h3>${history.length ? history.map(renderLeaveHistoryCard).join('') : '<p class="muted">No rejected/cancelled leave yet.</p>'}
-    </div>`;
+  const scope = isMainAdmin() ? 'All teams' : `Assigned team only: ${esc((state.adminSession||{}).teamName || '')}`;
+  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="adminDataLoaded=false; ensureAdminDataLoaded()">Refresh Leave Data</button></div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
 }
 function renderLeaveRequestCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="previewLeave('${esc(l.LeaveID)}')">Preview</button><button class="btn ok" onclick="approveLeaveReq('${esc(l.LeaveID)}')">Approve</button><button class="btn bad" onclick="rejectLeaveReq('${esc(l.LeaveID)}')">Reject</button></div><div id="preview-${esc(l.LeaveID)}"></div></div>`;
 }
 function renderApprovedLeaveCard(l){
-  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn warn" onclick="cancelApprovedLeaveReq('${esc(l.LeaveID)}')">Cancel approved leave</button></div></div>`;
+  const cancelBtn = isMainAdmin() ? `<div class="btns"><button class="btn warn" onclick="cancelApprovedLeaveReq('${esc(l.LeaveID)}')">Cancel approved leave</button></div>` : '<p class="small muted">Cancellation is main-admin only.</p>';
+  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}${cancelBtn}</div>`;
 }
 function renderLeaveHistoryCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}</div>`;
@@ -960,6 +1095,7 @@ function renderImpact(r){
 
 function renderRotaEditor(){
   if(!adminUnlocked){ qs('#tab-editor').innerHTML = ''; return; }
+  if(!isMainAdmin()){ qs('#tab-editor').innerHTML = '<div class="card"><h2>Manual Edit</h2><p class="sub">Manual rota editing is limited to the main admin.</p></div>'; return; }
   const list = (state.editorWeekList && state.editorWeekList.weeks) || [];
   const selected = state.editorWeek;
   if(editorLoading && !list.length){ qs('#tab-editor').innerHTML = '<div class="card"><h2>Manual Edit</h2><p class="sub">Loading week list…</p></div>'; return; }
@@ -1038,7 +1174,8 @@ async function publishManualEdit(){
 
 function renderSettings(){
   if(!adminUnlocked){ qs('#tab-settings').innerHTML = ''; return; }
-  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>Admin PIN</h2><p class="sub dangerText">Default PIN is 1234. Change it before sharing the web app link.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Each created team has one inpatient Team consultant weekly.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional, but the same consultant must never be Off-duty two weeks in a row.</li><li>Off-duty is skipped when there are only 2 available consultants, or when assigning it would repeat the same consultant Off-duty two weeks in a row.</li><li>Inpatient Team should not be assigned to the same consultant two weeks in a row unless all other consultants in that team are unavailable because of Leave/Inactive status.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactive consultant is removed from assignments from the effective week onward.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require an admin PIN.</li></ul></div>`;
+  if(!isMainAdmin()){ qs('#tab-settings').innerHTML = '<div class="card"><h2>Setup</h2><p class="sub">Setup is limited to the main admin.</p></div>'; return; }
+  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>Admin PIN</h2><p class="sub dangerText">Default PIN is 1234. Change it before sharing the web app link.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Each created team has one inpatient Team consultant weekly.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional, but the same consultant must never be Off-duty two weeks in a row.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is skipped when there are only 2 available consultants, or when assigning it would repeat the same consultant Off-duty two weeks in a row.</li><li>Inpatient Team should not be assigned to the same consultant two weeks in a row unless all other consultants in that team are unavailable because of Leave/Inactive status.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactive consultant is removed from assignments from the effective week onward.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>A consultant marked Special is normally assigned to inpatient Team every 6 weeks. If on approved leave when due, the Team turn moves to the next available safe week. The Can Off-duty setting remains absolute and the special turn must not unfairly delay eligible consultants' normal Off-duty cycle.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require an admin PIN.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
 }
 async function changeAdminPin(){
   const pin = (qs('#newAdminPin') && qs('#newAdminPin').value || '').trim();
@@ -1050,10 +1187,7 @@ async function changeAdminPin(){
   render();
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  qs('#tab-rota').innerHTML = '<div class="card"><div class="loaderCard" style="box-shadow:none;border:0;padding:4px 0"><span class="spinner"></span><span>Loading rota system…</span></div></div>';
-  load();
-});
+load();
 </script>
 </body>
 </html>

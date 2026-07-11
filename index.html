@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=1.9.3">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=1.9.3">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=1.9.3">
+  <link rel="manifest" href="manifest.webmanifest?v=1.9.4">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=1.9.4">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=1.9.4">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -212,7 +212,7 @@
 <body>
   <header>
     <div class="headerRow">
-      <img class="brandLogo" src="icons/header-logo.png?v=1.9.3" alt="">
+      <img class="brandLogo" src="icons/header-logo.png?v=1.9.4" alt="">
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
@@ -317,7 +317,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=1.9.3',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=1.9.4',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });
@@ -791,7 +791,7 @@ function renderRota(){
   const meta = (state.latestRota && state.latestRota.meta) || state.latestVersion;
   const allWeeks = (state.latestRota && state.latestRota.weeks) || [];
   const weeks = rotaFilteredWeeks(allWeeks);
-  const useAdminTable = adminUnlocked && window.matchMedia('(min-width:900px)').matches;
+  const useDesktopTable = window.matchMedia('(min-width:900px)').matches;
   const isWindow = state.latestRota && state.latestRota.viewMode === 'window';
   const isFull = state.latestRota && state.latestRota.viewMode === 'full';
   const summary = state.latestRota && state.latestRota.summary;
@@ -803,7 +803,7 @@ function renderRota(){
     ? '<div class="card startupSkeleton"><div class="skeletonLine short"></div><div class="skeletonLine medium"></div><div class="skeletonLine skeletonBlock"></div><div class="skeletonLine skeletonBlock"></div></div>'
     : !allWeeks.length
       ? `<div class="card"><p class="muted">${meta ? 'The current rota window is not available yet.' : 'Generate a rota from the Admin tab.'}</p></div>`
-      : useAdminTable
+      : useDesktopTable
         ? renderRotaTable(weeks)
         : weeks.map(renderWeekCard).join('');
   qs('#tab-rota').innerHTML = `

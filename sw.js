@@ -1,13 +1,13 @@
-const CACHE_NAME = 'ctu-rota-v1.9.1';
+const CACHE_NAME = 'ctu-rota-v1.9.2';
 const APP_SHELL = [
   './',
   './index.html',
-  './manifest.webmanifest?v=1.9.1',
-  './icons/header-logo.png?v=1.9.1',
-  './icons/favicon.png?v=1.9.1',
-  './icons/apple-touch-icon.png?v=1.9.1',
-  './icons/icon-192.png?v=1.9.1',
-  './icons/icon-512.png?v=1.9.1'
+  './manifest.webmanifest?v=1.9.2',
+  './icons/header-logo.png?v=1.9.2',
+  './icons/favicon.png?v=1.9.2',
+  './icons/apple-touch-icon.png?v=1.9.2',
+  './icons/icon-192.png?v=1.9.2',
+  './icons/icon-512.png?v=1.9.2'
 ];
 
 self.addEventListener('install', event => {

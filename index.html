@@ -3,10 +3,12 @@
 <head>
   <base target="_top">
   <meta charset="UTF-8">
+  <title>CTU ROTA</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="CTU ROTA">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="icons/favicon.png">
@@ -208,7 +210,7 @@
     <div class="headerRow">
       <img class="brandLogo" src="icons/header-logo.png" alt="">
       <div class="headerText">
-        <h1>Consultant Rota System</h1>
+        <h1>CTU ROTA</h1>
         <p id="versionLine"></p>
         <div class="headerMeta"><span id="connectionBadge" class="metaBadge">Online</span></div>
       </div>
@@ -236,7 +238,7 @@
     </main>
   </div>
   <div id="toast" class="toast"></div>
-  <div id="loadingOverlay" class="loadingOverlay hide"><div class="loadingBox"><div class="spinner"></div><b id="loadingMessage">Loading rota system…</b><span>Please wait</span></div></div>
+  <div id="loadingOverlay" class="loadingOverlay hide"><div class="loadingBox"><div class="spinner"></div><b id="loadingMessage">Loading CTU ROTA…</b><span>Please wait</span></div></div>
 
 <script>
 let state = { teams: [], consultants: [], leaveRequests: [], rotaPeriods: [], rotaVersions: [], latestVersion: null, latestRota: {meta:null,weeks:[],notLoaded:true,viewMode:'empty'}, latestConflicts: [], editorWeekList: null, editorWeek: null, latestExport: null, auditLog: [] };
@@ -361,7 +363,7 @@ function statusPill(value){
 }
 function apiLoadingMessage(fn){
   const map={
-    getBootstrap:'Loading rota system…', getStartupPayload:'Loading rota system…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
+    getBootstrap:'Loading CTU ROTA…', getStartupPayload:'Loading CTU ROTA…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
     checkLeaveAvailability:'Checking leave overlap…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
     exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
     saveAdminUser:'Saving sub-admin…', archiveHistoricalAssignments:'Archiving historical assignments…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
@@ -701,7 +703,7 @@ async function logoutAdmin(){
   toast('Signed out from Admin.'); showTab('rota');
 }
 function renderAdminLock(title='Admin Login'){
-  return `<div class="card"><h2>${esc(title)}</h2><p class="sub">Sign in with your unique username and PIN.</p><label>Username</label><input id="adminUsername" autocomplete="username" value="${esc(adminUsername||'')}" placeholder="Example: admin or tcu_admin"><label>PIN</label><input id="adminPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="4 to 8 digit PIN" onkeydown="if(event.key==='Enter') loginAdmin()"><div class="btns"><button class="btn" onclick="loginAdmin()">Login</button><button class="btn secondary" onclick="load()">Refresh</button></div><p class="small muted">Each admin account must have a unique username. The PIN alone is not used to identify the account.</p></div>`;
+  return `<div class="card"><h2>${esc(title)}</h2><p class="sub">Sign in with your unique username and PIN.</p><label>Username</label><input id="adminUsername" autocomplete="username" value="${esc(adminUsername||'')}" placeholder="Example: admin or ctu_admin"><label>PIN</label><input id="adminPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="4 to 8 digit PIN" onkeydown="if(event.key==='Enter') loginAdmin()"><div class="btns"><button class="btn" onclick="loginAdmin()">Login</button><button class="btn secondary" onclick="load()">Refresh</button></div><p class="small muted">Each admin account must have a unique username. The PIN alone is not used to identify the account.</p></div>`;
 }
 
 function render(){ renderActiveTab(); }
@@ -999,7 +1001,7 @@ function renderAdmin(){
       <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}</div></div></details>
       <details class="adminPanel"><summary>Consultant Settings</summary><div class="adminPanelBody"><div class="card"><h2>Add Consultant</h2><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Consultant type</label><select id="consultantType">${consultantTypeOptions('Regular')}</select></div><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div></div><label>Active from</label><input type="date" id="activeFrom"><p class="small muted">A special consultant is normally assigned to inpatient Team every 6 weeks. In other weeks, the normal Can Off-duty setting still applies.</p><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div></div></details>
       <details class="adminPanel"><summary>Sub-admin Users</summary><div class="adminPanelBody">${renderAdminUsersPanel()}</div></details>
-      <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: Consultant Rota 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
+      <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: CTU ROTA 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
       <details class="adminPanel"><summary>Rota Periods, Versions & Archive</summary><div class="adminPanelBody"><div class="card"><h2>Rota Periods and Amendments</h2><p class="sub">Each rota period has its own amendment numbering. New periods begin at Amendment 1. Archived periods remain available for audit and controlled restoration.</p>${renderVersionsList()}</div>${renderAssignmentStoragePanel()}</div></details>
       <details class="adminPanel"><summary>Mark Consultant Inactive</summary><div class="adminPanelBody"><div class="card"><h2>Mark Consultant Inactive</h2><label>Consultant</label><select id="inactiveConsultant">${consultantOptions('', true)}</select><div class="row"><div><label>Inactive from</label><input type="date" id="inactiveFrom"></div><div><label>Reason / note</label><input id="inactiveNote"></div></div><div class="btns"><button class="btn secondary" onclick="previewInactive()">Preview Impact</button><button class="btn bad" onclick="confirmInactive()">Confirm Inactive</button></div><div id="inactivePreview"></div></div></div></details>
       <details class="adminPanel"><summary>Audit Log</summary><div class="adminPanelBody"><div class="card"><h2>Recent Administrative Activity</h2><p class="sub">Records approvals, publishing, manual edits, settings changes, exports, and other important actions. PIN values are never written to this log.</p><div class="btns"><button class="btn secondary" onclick="loadAuditLog(true)">Load / Refresh Audit Log</button></div><div id="auditLogPanel">${renderAuditLog()}</div></div></div></details>
@@ -1037,7 +1039,7 @@ function renderLatestConflicts(){
 
 
 function renderAdminUsersPanel(){
-  return `<div class="card"><h2>Create Team Sub-admin</h2><p class="sub">Each account needs a unique username. A team sub-admin can approve/reject leave only for the assigned team.</p><div class="row"><div><label>Name</label><input id="adminUserName" placeholder="Dr. Name"></div><div><label>Username</label><input id="adminUserUsername" autocomplete="off" placeholder="Example: tcu_admin"></div></div><div class="row"><div><label>Assigned team</label><select id="adminUserTeam">${allTeamOptions('', true)}</select></div><div><label>PIN</label><input id="adminUserPin" type="password" inputmode="numeric" autocomplete="new-password" placeholder="4 to 8 digits"></div></div><div class="row"><div><label>Active</label><select id="adminUserActive"><option>Yes</option><option>No</option></select></div><div><label>Notes</label><input id="adminUserNotes" placeholder="Optional"></div></div><div class="btns"><button class="btn" onclick="addAdminUser()">Add Sub-admin</button></div>${renderAdminUsersList()}</div>`;
+  return `<div class="card"><h2>Create Team Sub-admin</h2><p class="sub">Each account needs a unique username. A team sub-admin can approve/reject leave only for the assigned team.</p><div class="row"><div><label>Name</label><input id="adminUserName" placeholder="Dr. Name"></div><div><label>Username</label><input id="adminUserUsername" autocomplete="off" placeholder="Example: ctu_admin"></div></div><div class="row"><div><label>Assigned team</label><select id="adminUserTeam">${allTeamOptions('', true)}</select></div><div><label>PIN</label><input id="adminUserPin" type="password" inputmode="numeric" autocomplete="new-password" placeholder="4 to 8 digits"></div></div><div class="row"><div><label>Active</label><select id="adminUserActive"><option>Yes</option><option>No</option></select></div><div><label>Notes</label><input id="adminUserNotes" placeholder="Optional"></div></div><div class="btns"><button class="btn" onclick="addAdminUser()">Add Sub-admin</button></div>${renderAdminUsersList()}</div>`;
 }
 function renderAdminUsersList(){
   const users=state.adminUsers||[];

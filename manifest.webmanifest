@@ -1,6 +1,6 @@
 {
-  "name": "TCU Consultant Rota",
-  "short_name": "TCU Rota",
+  "name": "CTU ROTA",
+  "short_name": "CTU ROTA",
   "start_url": "index.html",
   "scope": "./",
   "display": "standalone",

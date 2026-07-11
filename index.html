@@ -185,6 +185,15 @@
       .roleTile.span2{grid-column:auto}
     }
 
+    /* v1.9 non-blocking startup and seven-team rendering */
+    .startupSkeleton{display:grid;gap:10px}
+    .skeletonLine{height:14px;border-radius:8px;background:linear-gradient(90deg,#eef1f6 25%,#f8fafc 50%,#eef1f6 75%);background-size:200% 100%;animation:skeletonMove 1.2s linear infinite}
+    .skeletonLine.short{width:42%}.skeletonLine.medium{width:70%}.skeletonBlock{height:86px;border-radius:14px}
+    @keyframes skeletonMove{to{background-position:-200% 0}}
+    .syncNote{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;font-weight:700}
+    .syncDot{width:7px;height:7px;border-radius:50%;background:var(--gold);animation:syncPulse 1s ease-in-out infinite alternate}
+    @keyframes syncPulse{to{opacity:.25}}
+
   </style>
 </head>
 <body>
@@ -224,7 +233,7 @@
 
 <script>
 let state = { teams: [], consultants: [], leaveRequests: [], rotaPeriods: [], rotaVersions: [], latestVersion: null, latestRota: {meta:null,weeks:[],notLoaded:true,viewMode:'empty'}, latestConflicts: [], editorWeekList: null, editorWeek: null, latestExport: null, auditLog: [] };
-let rotaTeamFilter = 'ALL';
+let rotaTeamFilter = 'AUTO';
 let rotaLoading = false;
 let editorLoading = false;
 let currentTab = 'rota';
@@ -238,6 +247,14 @@ let editorTeamId = '';
 function safeSessionGet(key){ try { return window.sessionStorage ? (sessionStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
 function safeSessionSet(key,value){ try { if(window.sessionStorage) sessionStorage.setItem(key,value); } catch(e){} }
 function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.removeItem(key); } catch(e){} }
+function safeLocalGet(key){ try { return window.localStorage ? (localStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
+function safeLocalSet(key,value){ try { if(window.localStorage) localStorage.setItem(key,value); } catch(e){} }
+function safeLocalRemove(key){ try { if(window.localStorage) localStorage.removeItem(key); } catch(e){} }
+const STARTUP_CACHE_KEY = 'rotaStartupPayload_v1_9';
+const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v1_9';
+rotaTeamFilter = safeLocalGet(ROTA_FILTER_CACHE_KEY) || 'AUTO';
+let startupRefreshing = false;
+let startupCacheUsed = false;
 let adminToken = safeSessionGet('rotaAdminToken');
 let adminUsername = safeSessionGet('rotaAdminUsername');
 let adminUnlocked = !!adminToken;
@@ -337,7 +354,7 @@ function statusPill(value){
 }
 function apiLoadingMessage(fn){
   const map={
-    getBootstrap:'Loading rota system…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
+    getBootstrap:'Loading rota system…', getStartupPayload:'Loading rota system…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
     checkLeaveAvailability:'Checking leave overlap…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
     exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
     saveAdminUser:'Saving sub-admin…', archiveHistoricalAssignments:'Archiving historical assignments…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
@@ -356,14 +373,16 @@ function setLoading(on, message){
 // hosted outside script.google.com and google.script.run only works inside Apps Script's own
 // sandboxed page. text/plain avoids a CORS preflight request, which Apps Script cannot answer.
 const API_URL = 'https://script.google.com/macros/s/AKfycbzqRHxOZDJDrUXHm7KoZonSQ4MNoGS7dNBkz_-SrkDxBzaO_zm2p1LMuR6b9Lr7fcA/exec';
-function call(fn, ...args){
-  setLoading(true, apiLoadingMessage(fn));
+function requestApi(fn, args, options={}){
+  const showOverlay = options.overlay !== false;
+  const showToast = options.toastErrors !== false;
+  if(showOverlay) setLoading(true, apiLoadingMessage(fn));
   const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   const timer = setTimeout(()=>{ if(controller) controller.abort(); }, 60000);
   return fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ fn: fn, args: args }),
+    body: JSON.stringify({ fn: fn, args: args || [] }),
     signal: controller ? controller.signal : undefined
   })
     .then(async r => {
@@ -378,11 +397,13 @@ function call(fn, ...args){
     .catch(err => {
       let message = err && err.name === 'AbortError' ? 'The request took too long and was stopped. Check your connection and try again.' : (err.message || String(err));
       if(!navigator.onLine) message = 'You appear to be offline. Reconnect to the internet and try again.';
-      toast(message);
+      if(showToast) toast(message);
       throw new Error(message);
     })
-    .finally(() => { clearTimeout(timer); setLoading(false); });
+    .finally(() => { clearTimeout(timer); if(showOverlay) setLoading(false); });
 }
+function call(fn, ...args){ return requestApi(fn, args, {overlay:true, toastErrors:true}); }
+function callQuiet(fn, ...args){ return requestApi(fn, args, {overlay:false, toastErrors:false}); }
 function clearAdminSessionLocal(){
   adminToken=''; adminUsername=''; adminUnlocked=false; adminDataLoaded=false; adminDataLoading=false;
   auditLoaded=false; state.auditLog=[]; state.adminSession=null;
@@ -531,7 +552,7 @@ function updateVersionLine(){
   qs('#versionLine').textContent = latest ? `${latest.PeriodName || 'Active rota'} · Amendment ${latest.AmendmentNo}${updated}` : 'No official rota generated yet';
   updateConnectionBadge();
 }
-function markRotaStale(){ state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta: null, weeks: [], viewMode:'empty' }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
+function markRotaStale(){ safeLocalRemove(STARTUP_CACHE_KEY); startupCacheUsed=false; state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta: null, weeks: [], viewMode:'empty' }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
 async function ensureLatestRotaLoaded(full=false, refresh=false){
   if(rotaLoading) return;
   const cur = state.latestRota || {weeks:[]};
@@ -546,6 +567,9 @@ async function ensureLatestRotaLoaded(full=false, refresh=false){
     state.latestRota.viewMode = full ? 'full' : 'window';
     state.latestRota.notLoaded = false;
     state.latestVersion = state.latestRota.meta || state.latestVersion;
+    if(full && rotaTeamFilter==='ALL_CURRENT' && activeTeams().length>1) rotaTeamFilter=activeTeams()[0].TeamID;
+    normalizeRotaTeamFilter_();
+    saveCurrentStartupCache_();
     updateVersionLine();
   }
   finally{ rotaLoading = false; if(currentTab==='rota') renderRota(); }
@@ -588,16 +612,60 @@ async function loadEditorWeekTeam(weekNo, teamId){
   finally{ editorLoading = false; if(currentTab==='editor') renderRotaEditor(); }
 }
 
-async function load(){
+function publicStartupPayload_(){
+  return {
+    app: state.app || {}, serverTime: state.serverTime || '',
+    teams: state.teams || [], consultants: state.consultants || [], leaveRequests: [],
+    latestVersion: state.latestVersion || null, latestRota: state.latestRota || {meta:null,weeks:[]}
+  };
+}
+function applyStartupPayload_(payload){
+  const data=payload||{};
+  state.app=data.app||state.app||{};
+  state.serverTime=data.serverTime||'';
+  state.teams=Array.isArray(data.teams)?data.teams:[];
+  state.consultants=Array.isArray(data.consultants)?data.consultants:[];
+  state.latestVersion=data.latestVersion||null;
+  state.latestRota=data.latestRota||{meta:null,weeks:[],viewMode:'window'};
+  state.latestRota.notLoaded=false;
+  normalizeRotaTeamFilter_();
+}
+function saveCurrentStartupCache_(){
+  // Keep only the lightweight eight-week window in local storage. A full 52-week view
+  // can be large and must never become the next startup payload.
+  if(!state.latestRota || state.latestRota.viewMode!=='window') return;
+  try{ safeLocalSet(STARTUP_CACHE_KEY, JSON.stringify({savedAt:Date.now(),payload:publicStartupPayload_()})); }catch(e){}
+}
+function hydrateStartupCache_(){
+  const raw=safeLocalGet(STARTUP_CACHE_KEY); if(!raw) return false;
   try{
-    state = await call('getBootstrap');
-    state.editorWeekList = null; state.editorWeek = null; rotaTeamFilter = 'ALL'; adminDataLoaded = false; adminDataLoading = false; auditLoaded=false; state.auditLog=[]; state.adminSession = null;
-    if(adminToken){ adminUnlocked = true; refreshNav(); }
-    refreshNav();
-    updateVersionLine();
-    render();
-    if(currentTab==='rota') await ensureLatestRotaLoaded(false);
+    const parsed=JSON.parse(raw);
+    if(!parsed || !parsed.payload || !parsed.savedAt || (Date.now()-Number(parsed.savedAt))>7*24*60*60*1000) throw new Error('Expired cache');
+    applyStartupPayload_(parsed.payload);
+    startupCacheUsed=true;
+    return true;
+  }catch(e){ safeLocalRemove(STARTUP_CACHE_KEY); return false; }
+}
+async function load(){
+  const hadCache=hydrateStartupCache_();
+  state.editorWeekList = null; state.editorWeek = null; adminDataLoaded = false; adminDataLoading = false; auditLoaded=false; state.auditLog=[];
+  if(adminToken) adminUnlocked = true;
+  startupRefreshing=true;
+  refreshNav(); updateVersionLine(); render();
+  try{
+    const fresh=await callQuiet('getStartupPayload');
+    applyStartupPayload_(fresh);
+    saveCurrentStartupCache_();
+    startupCacheUsed=false;
+    startupRefreshing=false;
+    refreshNav(); updateVersionLine(); render();
   }catch(e){
+    startupRefreshing=false;
+    if(hadCache){
+      render();
+      toast('Showing the last saved rota while the live server is unavailable.');
+      return;
+    }
     currentTab='rota';
     qsa('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab==='rota'));
     qsa('main section').forEach(sec=>sec.classList.add('hide'));
@@ -647,12 +715,13 @@ function renderRota(){
   const isFull = state.latestRota && state.latestRota.viewMode === 'full';
   const summary = state.latestRota && state.latestRota.summary;
   const exportBox = state.latestExport ? renderExportReadyBox(state.latestExport) : '';
-  const filterBar = allWeeks.length ? `<div class="card"><label>Team</label><select onchange="onRotaTeamFilterChange(this)">${rotaTeamFilterOptions()}</select></div>` : '';
-  const notice = allWeeks.length && isWindow ? `<div class="viewNotice">${esc(summary || 'Showing current week and upcoming weeks. Use View Full 52-Week Rota if you need the complete rota.')}</div>` : '';
-  const body = rotaLoading
-    ? '<div class="card"><p class="muted">Loading latest rota…</p></div>'
+  const filterBar = allWeeks.length ? `<div class="card"><label>Rota view</label><select onchange="onRotaTeamFilterChange(this)">${rotaTeamFilterOptions()}</select><p class="small muted">For multiple teams, the default view shows all teams for the current week. Choose one team to browse all eight weeks quickly.</p></div>` : '';
+  const sync = startupRefreshing ? `<div class="syncNote"><span class="syncDot"></span>Updating the live rota in the background…</div>` : '';
+  const notice = allWeeks.length && isWindow ? `<div class="viewNotice">${esc(summary || 'Showing current week and upcoming weeks. Use View Full 52-Week Rota if you need the complete rota.')} ${sync}</div>` : (sync ? `<div class="viewNotice">${sync}</div>` : '');
+  const body = rotaLoading || (startupRefreshing && !allWeeks.length)
+    ? '<div class="card startupSkeleton"><div class="skeletonLine short"></div><div class="skeletonLine medium"></div><div class="skeletonLine skeletonBlock"></div><div class="skeletonLine skeletonBlock"></div></div>'
     : !allWeeks.length
-      ? `<div class="card"><p class="muted">${meta ? 'Loading the current and upcoming rota weeks…' : 'Generate a rota from the Admin tab.'}</p></div>`
+      ? `<div class="card"><p class="muted">${meta ? 'The current rota window is not available yet.' : 'Generate a rota from the Admin tab.'}</p></div>`
       : adminUnlocked
         ? renderRotaTable(weeks)
         : weeks.map(renderWeekCard).join('');
@@ -704,14 +773,31 @@ function renderWeekCard(w){
   return `<div class="card week"><h3>Week ${esc(w.weekNo)}</h3><p class="sub">${esc(w.period)}</p>${w.teams.map(renderTeamRoleBlock_).join('')}</div>`;
 }
 function list(arr){ return arr && arr.length ? arr.map(chip).join(' ') : '<span class="muted">—</span>'; }
+function normalizeRotaTeamFilter_(){
+  const teams=activeTeams();
+  const valid=teams.some(t=>t.TeamID===rotaTeamFilter);
+  if(rotaTeamFilter==='ALL' || rotaTeamFilter==='ALL_CURRENT' || valid) return;
+  rotaTeamFilter = teams.length>1 ? 'ALL_CURRENT' : (teams[0] ? teams[0].TeamID : 'ALL');
+  safeLocalSet(ROTA_FILTER_CACHE_KEY, rotaTeamFilter);
+}
 function rotaFilteredWeeks(weeks){
+  normalizeRotaTeamFilter_();
   if(rotaTeamFilter==='ALL') return weeks;
+  if(rotaTeamFilter==='ALL_CURRENT'){
+    const current=state.latestRota&&state.latestRota.window&&Number(state.latestRota.window.currentWeek);
+    const selected=(weeks||[]).find(w=>Number(w.weekNo)===current) || (weeks||[])[0];
+    return selected ? [selected] : [];
+  }
   return weeks.map(w=>Object.assign({}, w, { teams: w.teams.filter(t=>t.teamId===rotaTeamFilter) })).filter(w=>w.teams.length);
 }
 function rotaTeamFilterOptions(){
-  return '<option value="ALL"'+(rotaTeamFilter==='ALL'?' selected':'')+'>All teams</option>' + activeTeams().map(t=>`<option value="${esc(t.TeamID)}"${rotaTeamFilter===t.TeamID?' selected':''}>${esc(t.TeamName)}</option>`).join('');
+  const teams=activeTeams();
+  const multi=teams.length>1;
+  return (multi ? '<option value="ALL_CURRENT"'+(rotaTeamFilter==='ALL_CURRENT'?' selected':'')+'>All teams — current week</option>' : '') +
+    teams.map(t=>`<option value="${esc(t.TeamID)}"${rotaTeamFilter===t.TeamID?' selected':''}>${esc(t.TeamName)} — all loaded weeks</option>`).join('') +
+    (multi ? '<option value="ALL"'+(rotaTeamFilter==='ALL'?' selected':'')+'>All teams — all loaded weeks (slower)</option>' : '');
 }
-function onRotaTeamFilterChange(sel){ rotaTeamFilter = sel.value; renderRota(); }
+function onRotaTeamFilterChange(sel){ rotaTeamFilter = sel.value; safeLocalSet(ROTA_FILTER_CACHE_KEY, rotaTeamFilter); renderRota(); }
 function renderRotaTable(weeks){
   const rows = [];
   weeks.forEach(w=>{

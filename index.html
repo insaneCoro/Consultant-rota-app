@@ -1071,7 +1071,7 @@ function renderAdmin(){
     <div class="card"><h2>Admin Panel</h2><p class="sub">You are signed in as <b>${esc(adminScopeText())}</b>. Sections are separated for easier mobile use.</p><div class="btns"><button class="btn secondary" onclick="refreshAdminState()">Refresh Admin Data</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div></div>
     <div class="adminSections">
       <details class="adminPanel" open><summary>Rota Status & Conflicts</summary><div class="adminPanelBody">${renderLatestConflicts()}</div></details>
-      <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><label>Team structure</label><select id="teamType" onchange="updateCreateTeamPriorityOptions_()"><option value="Standard">Standard</option><option value="SubTeam">Parent team with 2 sub-teams</option></select><label>Sub-team names (comma-separated)</label><input id="teamSubNames" value="TCU,EMCU" oninput="updateCreateTeamPriorityOptions_()"><label>Single-consultant coverage priority (optional)</label><select id="teamOnePriority"><option value="">Require admin decision</option><option value="TCU">TCU</option><option value="EMCU">EMCU</option></select><p class="small muted">New sub-team configuration activates next rota period.</p><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}<div class="previewBox"><h3>Single-consultant coverage — selected week</h3><p class="small muted">Use when only one consultant will be available. Select the coverage week and choose TCU or EMCU. This decision does not edit an already published rota; it is used during generation or automatic amendments.</p><label>Parent team</label><select id="subCoverageTeam" onchange="updateSubCoverageChoices()">${subTeamChoiceTeamOptions_()}</select><label>Week starting Sunday</label><input id="subCoverageWeek" type="date"><label>Service to cover</label><select id="subCoverageRole">${subTeamCoverageRoles_()}</select><div class="btns"><button class="btn secondary" onclick="saveSubTeamWeekCoverage()">Save coverage decision</button></div></div></div></div></details>
+      <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><label>Team structure</label><select id="teamType" onchange="updateCreateTeamPriorityOptions_()"><option value="Standard">Standard</option><option value="SubTeam">Parent team with two sub-teams</option></select><div id="newTeamSubFields" class="hide"><div class="row"><div><label>Sub-team 1 name</label><input id="teamSubName1" value="TCU" maxlength="60" oninput="updateCreateTeamPriorityOptions_()"></div><div><label>Sub-team 2 name</label><input id="teamSubName2" value="EMCU" maxlength="60" oninput="updateCreateTeamPriorityOptions_()"></div></div><label>When only one consultant is available</label><select id="teamOnePriority"><option value="">Main Admin chooses by week</option></select></div><p class="small muted">Sub-team coverage begins next rota period; it does not change any published assignments.</p><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div><div class="previewBox"><h3>Existing teams — Add or edit sub-teams</h3><p class="small muted">Choose <b>Add sub-teams</b> or <b>Edit sub-teams</b> beside an existing team. Your existing consultant assignments and Team ID are kept. This only changes the team structure for the next rota period.</p>${renderTeamsList()}<div id="existingTeamSubEditor" class="previewBox hide"></div></div><div class="previewBox"><h3>Single-consultant coverage — selected week</h3><p class="small muted">Use when only one consultant will be available. Select the coverage week and choose one of the team's named sub-teams. This decision does not edit an already published rota; it is used during generation or automatic amendments.</p><label>Parent team</label><select id="subCoverageTeam" onchange="updateSubCoverageChoices()">${subTeamChoiceTeamOptions_()}</select><label>Week starting Sunday</label><input id="subCoverageWeek" type="date"><label>Service to cover</label><select id="subCoverageRole">${subTeamCoverageRoles_()}</select><div class="btns"><button class="btn secondary" onclick="saveSubTeamWeekCoverage()">Save coverage decision</button></div></div></div></div></details>
       <details class="adminPanel"><summary>Consultant Settings</summary><div class="adminPanelBody"><div class="card"><h2>Add Consultant</h2><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Consultant type</label><select id="consultantType">${consultantTypeOptions('Regular')}</select></div><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div></div><label>Active from</label><input type="date" id="activeFrom"><p class="small muted">A special consultant is normally assigned to inpatient Team every 6 weeks. In other weeks, the normal Can Off-duty setting still applies.</p><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div></div></details>
       <details class="adminPanel"><summary>Sub-admin Users</summary><div class="adminPanelBody">${renderAdminUsersPanel()}</div></details>
       <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: CTU ROTA 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
@@ -1080,6 +1080,7 @@ function renderAdmin(){
       <details class="adminPanel"><summary>Audit Log</summary><div class="adminPanelBody"><div class="card"><h2>Recent Administrative Activity</h2><p class="sub">Records approvals, publishing, manual edits, settings changes, exports, and other important actions. PIN values are never written to this log.</p><div class="btns"><button class="btn secondary" onclick="loadAuditLog(true)">Load / Refresh Audit Log</button></div><div id="auditLogPanel">${renderAuditLog()}</div></div></div></details>
       <details class="adminPanel"><summary>Danger Zone</summary><div class="adminPanelBody"><div class="card"><h2>Danger Zone</h2><p class="sub dangerText">Clears generated rota periods, versions, assignments, conflicts, and override logs only. Teams, consultants, and leave requests remain.</p><button class="btn bad" onclick="resetRotaOnly()">Clear Generated Rota</button></div></div></details>
     </div>`;
+  updateCreateTeamPriorityOptions_();
   renderManualGrid();
 }
 
@@ -1141,7 +1142,7 @@ async function saveAdminUserSettings(id){
 }
 
 function renderTeamsList(){
-  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}</td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button><button class="btn secondary" onclick="editSubTeamSettings('${esc(t.TeamID)}')">Edit structure</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
+  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}<div class="small muted">${t.TeamType==='SubTeam'?`Sub-teams: ${esc(String(t.SubTeamConfig||'').replace(',', ' / '))}`:'Standard team'}</div></td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button><button class="btn secondary" onclick="openExistingSubTeamEditor('${esc(t.TeamID)}')">${t.TeamType==='SubTeam'?'Edit sub-teams':'Add sub-teams'}</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
 }
 
 
@@ -1251,11 +1252,75 @@ function renderConsultantsList(){
       <td data-label="Action"><button class="btn secondary" onclick="saveConsultantSettings('${esc(c.ConsultantID)}')">Save settings</button></td>
     </tr>`).join('')}</table></div>`;
 }
+function readSubNames_(a,b){
+  return [qs(a)?.value.trim()||'',qs(b)?.value.trim()||''];
+}
+function validSubNames_(names){
+  const forbidden=['team','opd','off-duty','reserve','leave','inactive'];
+  if(names.some(x=>!x || x.includes(',') || x.length>60 || forbidden.includes(x.toLowerCase())) || names[0].toLowerCase()===names[1].toLowerCase()){
+    toast('Enter two distinct sub-team names, without commas or reserved assignment names.'); return false;
+  }
+  return true;
+}
+function renderCoveragePriorityOptions_(element,names,selected=''){
+  if(!element) return;
+  const keep = names.includes(selected) ? selected : '';
+  element.innerHTML='<option value="">Main Admin chooses by week</option>'+names.filter(Boolean).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  element.value=keep;
+}
 function updateCreateTeamPriorityOptions_(){
-  const input=qs('#teamSubNames'), menu=qs('#teamOnePriority'); if(!input || !menu) return;
-  const previous=menu.value, names=String(input.value||'').split(',').map(x=>x.trim()).filter(Boolean).slice(0,2);
-  menu.innerHTML='<option value="">Require admin decision</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
-  if(names.includes(previous)) menu.value=previous;
+  const mode=qs('#teamType')?.value||'Standard';
+  qs('#newTeamSubFields')?.classList.toggle('hide',mode!=='SubTeam');
+  const names=readSubNames_('#teamSubName1','#teamSubName2');
+  const menu=qs('#teamOnePriority');
+  renderCoveragePriorityOptions_(menu,names,menu?.value||'');
+}
+function openExistingSubTeamEditor(id){
+  const team=(state.teams||[]).find(x=>x.TeamID===id), panel=qs('#existingTeamSubEditor');
+  if(!team || !panel) return;
+  const names=String(team.SubTeamConfig||'').split(',');
+  const mode=team.TeamType==='SubTeam'?'SubTeam':'Standard';
+  const consultantCount=(state.consultants||[]).filter(c=>c.TeamID===id).length;
+  panel.classList.remove('hide');
+  panel.dataset.teamId=id;
+  panel.innerHTML=`<h3>Configure ${esc(team.TeamName)}</h3><p class="small muted">${consultantCount} consultants remain in this team. Its Team ID and current published rota will not be modified.</p>
+    <label>Team structure</label><select id="existingTeamMode" onchange="updateExistingSubTeamMode_()"><option value="Standard"${selAttr('Standard',mode)}>Standard team (no sub-teams)</option><option value="SubTeam"${selAttr('SubTeam',mode)}>Parent team with two sub-teams</option></select>
+    <div id="existingSubFields"><div class="row"><div><label>Sub-team 1 name</label><input id="existingSubName1" value="${esc(names[0]||'')}" placeholder="e.g. TCU" maxlength="60" oninput="updateExistingCoveragePriority_()"></div><div><label>Sub-team 2 name</label><input id="existingSubName2" value="${esc(names[1]||'')}" placeholder="e.g. EMCU" maxlength="60" oninput="updateExistingCoveragePriority_()"></div></div>
+    <label>When only one consultant is available</label><select id="existingSubPriority"></select></div>
+    <p class="small muted">Effective: ${team.SubTeamFrom?esc(team.SubTeamFrom):'next rota period by default'}. Existing published weeks are protected. Once a sub-team rota period is generated, names may become locked to protect historical records.</p>
+    <div class="btns"><button class="btn ok" onclick="saveExistingSubTeamSettings()">Save team structure</button><button class="btn secondary" onclick="cancelExistingSubTeamSettings()">Cancel</button></div>`;
+  updateExistingCoveragePriority_(team.OneConsultantPriority||'');
+  updateExistingSubTeamMode_();
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function updateExistingCoveragePriority_(selected){
+  const menu=qs('#existingSubPriority');
+  renderCoveragePriorityOptions_(menu,readSubNames_('#existingSubName1','#existingSubName2'),selected===undefined?(menu?.value||''):selected);
+}
+function updateExistingSubTeamMode_(){
+  const fields=qs('#existingSubFields');
+  if(fields) fields.classList.toggle('hide',qs('#existingTeamMode')?.value!=='SubTeam');
+}
+function cancelExistingSubTeamSettings(){
+  const panel=qs('#existingTeamSubEditor'); if(panel){panel.classList.add('hide');panel.innerHTML='';delete panel.dataset.teamId;}
+}
+async function saveExistingSubTeamSettings(){
+  const id=qs('#existingTeamSubEditor')?.dataset.teamId;
+  const t=(state.teams||[]).find(x=>x.TeamID===id);
+  if(!t){toast('Select an existing team first.');return;}
+  const mode=qs('#existingTeamMode')?.value;
+  if(!['Standard','SubTeam'].includes(mode)){toast('Select a team structure.');return;}
+  const names=mode==='SubTeam'?readSubNames_('#existingSubName1','#existingSubName2'):[];
+  if(mode==='SubTeam' && !validSubNames_(names))return;
+  const config=mode==='SubTeam'?names.join(','):'';
+  if(mode!==t.TeamType && !(await confirmModal('Change the structure of '+t.TeamName+'? The existing Team ID and consultants are retained. This change starts next rota period and will not modify the published rota.','Change structure')))return;
+  const panel=qs('#existingTeamSubEditor'), save=panel?.querySelector('button.btn.ok');
+  if(save)save.disabled=true;
+  try{
+    const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:t.DisplayOrder,ColorHex:t.ColorHex,Active:t.Active,TeamType:mode,SubTeamConfig:config,OneConsultantPriority:mode==='SubTeam'?(qs('#existingSubPriority')?.value||''):''});
+    toast(r.message);
+    await refreshAdminState({auditChanged:true});
+  }finally{if(save)save.disabled=false;}
 }
 function subTeamChoiceTeamOptions_(){ return (state.teams||[]).filter(t=>t.TeamType==='SubTeam').map(t=>`<option value="${esc(t.TeamID)}">${esc(t.TeamName)}</option>`).join(''); }
 function subTeamCoverageRoles_(){ const selected=qs('#subCoverageTeam'); const id=selected?selected.value:((state.teams||[]).find(t=>t.TeamType==='SubTeam')||{}).TeamID; const t=(state.teams||[]).find(x=>x.TeamID===id); const roles=String((t&&t.SubTeamConfig)||'TCU,EMCU').split(',').map(x=>x.trim()).filter(Boolean); return roles.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join(''); }
@@ -1267,9 +1332,14 @@ async function saveSubTeamWeekCoverage(){
   if(!teamId || !weekStart || !subTeam){toast('Choose a parent team, Sunday week start, and covered service.');return;}
   const r=await adminCall('saveSubTeamCoverageChoice',{teamId,weekStart,subTeam});toast(r.message);
 }
-async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes',TeamType:qs('#teamType').value,SubTeamConfig:qs('#teamSubNames').value,OneConsultantPriority:qs('#teamOnePriority').value}); toast(r.message); await refreshAdminState({auditChanged:true}); }
+async function addTeam(){
+  const mode=qs('#teamType').value;
+  const names=mode==='SubTeam'?readSubNames_('#teamSubName1','#teamSubName2'):[];
+  if(mode==='SubTeam' && !validSubNames_(names))return;
+  const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes',TeamType:mode,SubTeamConfig:mode==='SubTeam'?names.join(','):'',OneConsultantPriority:mode==='SubTeam'?qs('#teamOnePriority').value:''});
+  toast(r.message); await refreshAdminState({auditChanged:true});
+}
 async function addConsultant(){ const data={Name:qs('#consultantName').value,TeamID:qs('#consultantTeam').value,ConsultantType:qs('#consultantType').value,CanOffDuty:qs('#canOff').value,ColorHex:qs('#consultantColor').value,ActiveFrom:qs('#activeFrom').value,Notes:qs('#consultantNotes').value}; const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); }
-async function editSubTeamSettings(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t)return; const kind=await promptModal('Team type: Standard or SubTeam',t.TeamType||'Standard'); if(kind===null)return; if(!['Standard','SubTeam'].includes(kind)){toast('Use Standard or SubTeam.');return;} const names=kind==='SubTeam'?await promptModal('Two sub-team names separated by a comma',t.SubTeamConfig||'TCU,EMCU'):''; if(names===null)return; const priority=kind==='SubTeam'?await promptModal('If only one consultant is available, prioritize which sub-team? (leave blank to require admin decision before generation)',t.OneConsultantPriority||''):''; if(priority===null)return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:t.DisplayOrder,ColorHex:t.ColorHex,Active:t.Active,TeamType:kind,SubTeamConfig:names,OneConsultantPriority:priority}); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function updateTeamColor(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t) return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:qs(`#teamOrder-${id}`).value,ColorHex:qs(`#teamColor-${id}`).value,Active:t.Active}); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function saveConsultantSettings(id){
   const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;

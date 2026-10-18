@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=2.8.0">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=2.8.0">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2.8.0">
+  <link rel="manifest" href="manifest.webmanifest?v=2.9.0">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=2.9.0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2.9.0">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -212,7 +212,7 @@
 <body>
   <header>
     <div class="headerRow">
-      <img class="brandLogo" src="icons/header-logo.png?v=2.8.0" alt="">
+      <img class="brandLogo" src="icons/header-logo.png?v=2.9.0" alt="">
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
@@ -263,7 +263,7 @@ function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.
 function safeLocalGet(key){ try { return window.localStorage ? (localStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
 function safeLocalSet(key,value){ try { if(window.localStorage) localStorage.setItem(key,value); } catch(e){} }
 function safeLocalRemove(key){ try { if(window.localStorage) localStorage.removeItem(key); } catch(e){} }
-const STARTUP_CACHE_KEY = 'rotaStartupPayload_v2_8_rc9';
+const STARTUP_CACHE_KEY = 'rotaStartupPayload_v2_9_rc10';
 const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v2_5';
 rotaTeamFilter = safeLocalGet(ROTA_FILTER_CACHE_KEY) || 'AUTO';
 let startupRefreshing = false;
@@ -317,7 +317,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=2.8.0',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=2.9.0',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });
@@ -1091,7 +1091,15 @@ function renderAdmin(){
       <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><label>Team structure</label><select id="teamType" onchange="updateCreateTeamPriorityOptions_()"><option value="Standard">Standard</option><option value="SubTeam">Parent team with two sub-teams</option></select><div id="newTeamSubFields" class="hide"><div class="row"><div><label>Sub-team 1 name</label><input id="teamSubName1" value="TCU" maxlength="60" oninput="updateCreateTeamPriorityOptions_()"></div><div><label>Sub-team 2 name</label><input id="teamSubName2" value="EMCU" maxlength="60" oninput="updateCreateTeamPriorityOptions_()"></div></div><label>When only one consultant is available</label><select id="teamOnePriority"><option value="">Main Admin chooses by week</option></select></div><p class="small muted">Sub-team coverage begins next rota period; it does not change any published assignments.</p><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div><div class="previewBox"><h3>Existing teams — Add or edit sub-teams</h3><p class="small muted">Choose <b>Add sub-teams</b> or <b>Edit sub-teams</b> beside an existing team. Your existing consultant assignments and Team ID are kept. To convert during an active rota, choose current-period activation and create a selected-team Draft amendment; it will not change the official rota until published.</p>${renderTeamsList()}<div id="existingTeamSubEditor" class="previewBox hide"></div></div><div class="previewBox"><h3>Single-consultant coverage — selected week</h3><p class="small muted">Use when only one consultant will be available. Select the coverage week and choose one of the team's named sub-teams. This decision does not edit an already published rota; it is used during generation or automatic amendments.</p><label>Parent team</label><select id="subCoverageTeam" onchange="updateSubCoverageChoices()">${subTeamChoiceTeamOptions_()}</select><label>Week starting Sunday</label><input id="subCoverageWeek" type="date"><label>Service to cover</label><select id="subCoverageRole">${subTeamCoverageRoles_()}</select><div class="btns"><button class="btn secondary" onclick="saveSubTeamWeekCoverage()">Save coverage decision</button></div></div></div></div></details>
       <details class="adminPanel"><summary>Consultant Settings</summary><div class="adminPanelBody"><div class="card"><h2>Add Consultant</h2><p class="small muted">Fairness is calculated only over eligible working weeks (excluding time before joining and approved leave). Adding, transferring or inactivating consultants creates a draft amendment for Main Admin review, not an automatic published change. Only one draft is permitted at a time.</p><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Consultant type</label><select id="consultantType">${consultantTypeOptions('Regular')}</select></div><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div></div><label>Active from</label><input type="date" id="activeFrom"><p class="small muted">A Special6 consultant is normally assigned inpatient once every six weeks. Mid-rota staffing changes generate a Draft amendment for review; the published rota remains unchanged until you publish the draft.</p><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div></div></details>
       <details class="adminPanel"><summary>Sub-admin Users</summary><div class="adminPanelBody">${renderAdminUsersPanel()}</div></details>
-      <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: CTU ROTA 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
+      <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: CTU ROTA 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p>
+        <div class="previewBox" id="rearrangeRotaPanel"><h3>Rearrange Rota from Week / Date</h3>
+          <p class="small muted">Rebuild only the selected parent team from the chosen current or future week through the end of the published period. Past weeks and other teams remain identical. This creates a draft for your review—nothing is automatically published.</p>
+          <label>Team to rearrange</label><select id="rearrangeTeam">${activeTeams().map(t=>`<option value="${esc(t.TeamID)}">${esc(t.TeamName)}</option>`).join('')}</select>
+          <div class="row"><div><label>Starting week</label><select id="rearrangeWeek" onchange="updateRearrangeDateFromWeek_()">${rearrangeWeekOptions_()}</select></div>
+          <div><label>Or choose a date</label><input type="date" id="rearrangeDate" onchange="updateRearrangeWeekFromDate_()"></div></div>
+          <div id="rearrangeNotice" class="viewNotice">Only current and future weeks can be rearranged.</div>
+          <div class="btns"><button class="btn ok" onclick="rearrangeRotaFromWeek()">Create Rearrangement Draft</button></div>
+        </div></div></div></details>
       <details class="adminPanel"><summary>Rota Periods, Versions & Archive</summary><div class="adminPanelBody"><div class="card"><h2>Rota Periods and Amendments</h2><p class="sub">Each rota period has its own amendment numbering. New periods begin at Amendment 1. Archived periods remain available for audit and controlled restoration.</p>${renderVersionsList()}</div>${renderAssignmentStoragePanel()}</div></details>
       <details class="adminPanel"><summary>Mark Consultant Inactive</summary><div class="adminPanelBody"><div class="card"><h2>Mark Consultant Inactive</h2><label>Consultant</label><select id="inactiveConsultant">${consultantOptions('', true)}</select><div class="row"><div><label>Inactive from</label><input type="date" id="inactiveFrom"></div><div><label>Reason / note</label><input id="inactiveNote"></div></div><div class="btns"><button class="btn secondary" onclick="previewInactive()">Preview Impact</button><button class="btn bad" onclick="confirmInactive()">Confirm Inactive</button></div><div id="inactivePreview"></div></div></div></details>
       <details class="adminPanel"><summary>Audit Log</summary><div class="adminPanelBody"><div class="card"><h2>Recent Administrative Activity</h2><p class="sub">Records approvals, publishing, manual edits, settings changes, exports, and other important actions. PIN values are never written to this log.</p><div class="btns"><button class="btn secondary" onclick="loadAuditLog(true)">Load / Refresh Audit Log</button></div><div id="auditLogPanel">${renderAuditLog()}</div></div></div></details>
@@ -1474,6 +1482,48 @@ async function generateRota(){
   const ok=await confirmModal(msg, 'Create Draft'); if(!ok) return;
   const r=await adminCall('createDraftRota',data); toast(r.message); await refreshAdminState({auditChanged:true});
 }
+function rearrangeWeekOptions_(){
+  const v=state.latestVersion;
+  if(!v||!v.StartDate)return '<option value="">No published rota</option>';
+  const start=new Date(String(v.StartDate).slice(0,10)+'T12:00:00Z');
+  const today=new Date();const sunday=new Date(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()));
+  sunday.setUTCDate(sunday.getUTCDate()-sunday.getUTCDay());
+  const out=[];
+  for(let w=1;w<=Number(v.Weeks||52);w++){
+    const day=new Date(start);day.setUTCDate(start.getUTCDate()+7*(w-1));
+    if(day<sunday)continue;
+    const iso=day.toISOString().slice(0,10);
+    out.push(`<option value="${w}" data-date="${iso}">Week ${w} · Sun ${iso}</option>`);
+  }
+  return out.length?out.join(''):'<option value="">No current/future weeks</option>';
+}
+function updateRearrangeDateFromWeek_(){
+  const week=qs('#rearrangeWeek'), date=qs('#rearrangeDate'),note=qs('#rearrangeNotice');
+  if(week && date)date.value=week.selectedOptions[0]?.dataset.date||'';
+  if(note&&week&&week.value) note.textContent=`Week ${week.value} onward will be regenerated for only the selected team. This will be a draft, not the published rota.`;
+}
+function updateRearrangeWeekFromDate_(){
+  const date=qs('#rearrangeDate'),week=qs('#rearrangeWeek');
+  if(!date||!week||!date.value)return;
+  const v=state.latestVersion;if(!v||!v.StartDate)return;
+  const chosen=new Date(date.value+'T12:00:00Z');
+  const start=new Date(String(v.StartDate).slice(0,10)+'T12:00:00Z');
+  const number=Math.floor((chosen-start)/604800000)+1;
+  const option=[...week.options].find(o=>Number(o.value)===number);
+  if(!option){toast('Choose a date within the current or future weeks of the active rota.');updateRearrangeDateFromWeek_();return;}
+  week.value=String(number);updateRearrangeDateFromWeek_();
+}
+async function rearrangeRotaFromWeek(){
+  const teamId=qs('#rearrangeTeam')?.value;
+  const weekNo=Number(qs('#rearrangeWeek')?.value||0);
+  if(!teamId||!weekNo){toast('Select a team and a valid current or future week.');return;}
+  updateRearrangeDateFromWeek_();
+  const date=qs('#rearrangeDate')?.value||'';
+  if(!await confirmModal(`Rearrange ${teamName(teamId)} from Week ${weekNo} (${date}) to the end of the current period? Previous weeks and other teams stay unchanged. A draft amendment will be created for review.`, 'Create Draft'))return;
+  const r=await adminCall('rearrangeTeamRota',{teamId:teamId,weekNo:weekNo});
+  toast(r.message);
+  await refreshAdminState({auditChanged:true});
+}
 async function previewInactive(){
   const data={ConsultantID:qs('#inactiveConsultant').value,InactiveFrom:qs('#inactiveFrom').value,Notes:qs('#inactiveNote').value};
   const r=await adminCall('previewInactivity',data); qs('#inactivePreview').innerHTML=renderImpact(r);
@@ -1534,10 +1584,23 @@ function renderRotaEditor(){
   qs('#tab-editor').innerHTML = `
     <div class="card"><h2>Manual Rota Edit</h2><p class="sub">Choose the week and team, then tap Load. For a converted team, edit each named sub-team separately. Publishing changes this team from the selected week forward; other teams remain unchanged.</p>
       <div class="row"><div><label>Select week</label><select id="editorWeekSelect" onchange="onEditorSelectionChange()">${weekOptions}</select></div><div><label>Select team</label><select id="editorTeamSelect" onchange="onEditorSelectionChange()">${teamOptionsHtml}</select></div></div>
-      <div class="btns"><button class="btn secondary" onclick="loadSelectedEditorTeam()">Load / Refresh Selected Team</button></div>
+      <div class="btns"><button class="btn secondary" onclick="loadSelectedEditorTeam()">Load / Refresh Selected Team</button><button class="btn blue" onclick="openRearrangeFromManual_()">Rearrange from This Week</button></div>
       <label>Amendment reason</label><input id="manualReason" placeholder="Example: External consultant covering Team A during approved leave">
     </div>
     <div class="card"><h2>${selectedTitle}</h2>${editorLoading ? '<p class="muted">Loading selected team…</p>' : selected ? renderEditorWeek(selected) : '<p class="muted">Choose a week and team, then tap Load / Refresh Selected Team.</p>'}${backendMismatch?'<div class="viewNotice dangerText">Backend version mismatch: update Code.gs and redeploy the Apps Script API before editing sub-teams. Publication is disabled to protect existing assignments.</div>':''}${selected ? `<div class="btns"><button class="btn ok" onclick="publishManualEdit()" ${backendMismatch?'disabled':''}>Publish Manual Amendment</button><button class="btn secondary" onclick="loadSelectedEditorTeam()">Refresh Team</button></div>` : ''}<p class="small muted">You can select from the same team or write one name per line. Same-team consultants affect the following auto-rotation. External typed names appear as manual cover only and are not used for future auto-generation.</p></div>`;
+}
+async function openRearrangeFromManual_(){
+  const week=Number(qs('#editorWeekSelect')?.value||editorWeekNo||0);
+  const team=String(qs('#editorTeamSelect')?.value||editorTeamId||'');
+  await showTab('admin');
+  const panel=qs('#rearrangeRotaPanel');
+  if(!panel){toast('Load the main admin dashboard first.');return;}
+  const ancestor=panel.closest('details');if(ancestor)ancestor.open=true;
+  const teamControl=qs('#rearrangeTeam'), weekControl=qs('#rearrangeWeek');
+  if(teamControl && team)teamControl.value=team;
+  if(weekControl && [...weekControl.options].some(o=>Number(o.value)===week))weekControl.value=String(week);
+  updateRearrangeDateFromWeek_();
+  panel.scrollIntoView({behavior:'smooth',block:'center'});
 }
 function renderEditorWeek(week){
   return (week.teams||[]).map(t=>{

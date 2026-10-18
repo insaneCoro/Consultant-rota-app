@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=1.9.4">
+  <link rel="manifest" href="manifest.webmanifest?v=2.0.0">
   <link rel="icon" type="image/png" href="icons/favicon.png?v=1.9.4">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=1.9.4">
   <style>
@@ -263,7 +263,7 @@ function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.
 function safeLocalGet(key){ try { return window.localStorage ? (localStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
 function safeLocalSet(key,value){ try { if(window.localStorage) localStorage.setItem(key,value); } catch(e){} }
 function safeLocalRemove(key){ try { if(window.localStorage) localStorage.removeItem(key); } catch(e){} }
-const STARTUP_CACHE_KEY = 'rotaStartupPayload_v1_9';
+const STARTUP_CACHE_KEY = 'rotaStartupPayload_v2_0_rc1';
 const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v1_9';
 rotaTeamFilter = safeLocalGet(ROTA_FILTER_CACHE_KEY) || 'AUTO';
 let startupRefreshing = false;
@@ -317,7 +317,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=1.9.4',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=2.0.0',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });
@@ -832,8 +832,8 @@ const ROLE_ICONS_ = {
   opd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
   off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>'
 };
-function roleTile_(label, iconKey, arr, span2){
-  return `<div class="roleTile${span2?' span2':''}"><div class="roleTileLabel">${ROLE_ICONS_[iconKey]}<span>${esc(label)}</span></div><div>${list(arr)}</div></div>`;
+function roleTile_(label, iconKey, arr, span2, critical){
+  return `<div class="roleTile${span2?' span2':''}"><div class="roleTileLabel">${ROLE_ICONS_[iconKey]}<span>${esc(label)}</span></div><div>${list(arr)}${critical && !(arr||[]).length ? ' <span class="pill bad">Uncovered — critical</span>' : ''}</div></div>`;
 }
 function renderTeamRoleBlock_(t){
   const color = cleanColor(t.teamColor, '#0f172a');
@@ -843,9 +843,10 @@ function renderTeamRoleBlock_(t){
   return `<div class="teamblock">
     <div class="teamHead"><span class="teamSquare" style="background:${esc(color)};color:${contrastColor(color)}">${esc((t.teamName||t.TeamName||'').slice(0,4))}</span><span class="small muted">Team on duty this week</span></div>
     <div class="roleGrid" style="--tileBg:${tintBg_(color,0.08)};--tileBorder:${tintBg_(color,0.22)}">
-      ${roleTile_('Inpatient', 'inpatient', t.Team)}
+      ${(t.subTeamNames||[]).length ? t.subTeamNames.map(role=>roleTile_(role,'inpatient',t[role],false,true)).join('') : roleTile_('Inpatient','inpatient',t.Team)}
       ${roleTile_('OPD', 'opd', t.OPD)}
       ${roleTile_('Off-duty', 'off', t['Off-duty'], true)}
+      ${(t.subTeamNames||[]).length || (t.Reserve||[]).length ? roleTile_('Reserve / Backup','inpatient',t.Reserve,true) : ''}
       ${notes.length ? `<div class="roleTile span2 roleTileNote"><div class="roleTileLabel"><span>Leave / Inactive</span></div><span class="pill warn">${esc(notes.join(', '))}</span></div>` : ''}
     </div>
   </div>`;
@@ -889,9 +890,9 @@ function renderRotaTable(weeks){
       rows.push(`<tr>
         <td><b>${esc(w.weekNo)}</b><br><span class="small muted">${esc(w.period)}</span></td>
         <td>${teamBadge(t)}</td>
-        <td>${list(t.Team)}</td>
+        <td>${(t.subTeamNames||[]).length ? t.subTeamNames.map(role=>`<div><b>${esc(role)}:</b> ${list(t[role])}${!(t[role]||[]).length?' <span class="pill bad">Uncovered</span>':''}</div>`).join('') : list(t.Team)}</td>
         <td>${list(t.OPD)}</td>
-        <td>${list(t['Off-duty'])}</td>
+        <td>${list(t['Off-duty'])}${(t.subTeamNames||[]).length || (t.Reserve||[]).length?`<div style="margin-top:6px"><b>Reserve:</b> ${list(t.Reserve)}</div>`:''}</td>
         <td>${notes.length ? `<span class="pill warn">${esc(notes.join(', '))}</span>` : '<span class="muted">—</span>'}</td>
       </tr>`);
     });
@@ -1070,7 +1071,7 @@ function renderAdmin(){
     <div class="card"><h2>Admin Panel</h2><p class="sub">You are signed in as <b>${esc(adminScopeText())}</b>. Sections are separated for easier mobile use.</p><div class="btns"><button class="btn secondary" onclick="refreshAdminState()">Refresh Admin Data</button><button class="btn warn" onclick="logoutAdmin()">Sign out</button></div></div>
     <div class="adminSections">
       <details class="adminPanel" open><summary>Rota Status & Conflicts</summary><div class="adminPanelBody">${renderLatestConflicts()}</div></details>
-      <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}</div></div></details>
+      <details class="adminPanel"><summary>Team Settings</summary><div class="adminPanelBody"><div class="card"><h2>Create Team</h2><p class="sub">Display order controls how teams appear in the app and DOCX export. Lower numbers appear first.</p><label>Team name</label><input id="teamName" placeholder="Team A"><label>Team structure</label><select id="teamType" onchange="updateCreateTeamPriorityOptions_()"><option value="Standard">Standard</option><option value="SubTeam">Parent team with 2 sub-teams</option></select><label>Sub-team names (comma-separated)</label><input id="teamSubNames" value="TCU,EMCU" oninput="updateCreateTeamPriorityOptions_()"><label>Single-consultant coverage priority (optional)</label><select id="teamOnePriority"><option value="">Require admin decision</option><option value="TCU">TCU</option><option value="EMCU">EMCU</option></select><p class="small muted">New sub-team configuration activates next rota period.</p><div class="row"><div><label>Display order</label><input type="number" id="teamOrder" min="0" step="1" placeholder="10"></div><div><label>Team color</label><input type="color" id="teamColor" value="#0f172a"></div></div><div class="btns"><button class="btn" onclick="addTeam()">Add Team</button></div>${renderTeamsList()}<div class="previewBox"><h3>Single-consultant coverage — selected week</h3><p class="small muted">Use when only one consultant will be available. Select the coverage week and choose TCU or EMCU. This decision does not edit an already published rota; it is used during generation or automatic amendments.</p><label>Parent team</label><select id="subCoverageTeam" onchange="updateSubCoverageChoices()">${subTeamChoiceTeamOptions_()}</select><label>Week starting Sunday</label><input id="subCoverageWeek" type="date"><label>Service to cover</label><select id="subCoverageRole">${subTeamCoverageRoles_()}</select><div class="btns"><button class="btn secondary" onclick="saveSubTeamWeekCoverage()">Save coverage decision</button></div></div></div></div></details>
       <details class="adminPanel"><summary>Consultant Settings</summary><div class="adminPanelBody"><div class="card"><h2>Add Consultant</h2><label>Name</label><input id="consultantName" placeholder="Dr. Name"><label>Assigned team</label><select id="consultantTeam">${teamOptions(true)}</select><div class="row"><div><label>Consultant type</label><select id="consultantType">${consultantTypeOptions('Regular')}</select></div><div><label>Can Off-duty?</label><select id="canOff"><option>Yes</option><option>No</option></select></div></div><label>Active from</label><input type="date" id="activeFrom"><p class="small muted">A special consultant is normally assigned to inpatient Team every 6 weeks. In other weeks, the normal Can Off-duty setting still applies.</p><label>Consultant color</label><input type="color" id="consultantColor" value="#2563eb"><label>Notes</label><input id="consultantNotes" placeholder="Optional"><div class="btns"><button class="btn" onclick="addConsultant()">Add Consultant</button></div>${renderConsultantsList()}</div></div></details>
       <details class="adminPanel"><summary>Sub-admin Users</summary><div class="adminPanelBody">${renderAdminUsersPanel()}</div></details>
       <details class="adminPanel"><summary>Rota Management</summary><div class="adminPanelBody"><div class="card"><h2>Create Draft Rota</h2><p class="sub">Choosing <b>All teams</b> creates a separate new rota period as Draft. Choosing one team creates a Draft amendment inside the current active period. Nothing becomes live until Publish Draft.</p><label>Team to generate</label><select id="rotaTeam" onchange="renderManualGrid()">${rotaTeamOptions()}</select><label>New period name <span class="muted">(used only when All teams is selected)</span></label><input id="rotaPeriodName" placeholder="Example: CTU ROTA 2027–2028"><div class="row"><div><label>Start date</label><input type="date" id="rotaStart" onchange="renderManualGrid()"></div><div><label>Weeks</label><input type="number" id="rotaWeeks" value="52" min="1" max="104"><p class="small muted">Ignored when generating one team inside an existing rota; the current rota end date is used.</p></div></div><label>Manual seed weeks</label><select id="manualWeeks" onchange="renderManualGrid()"><option value="0">0 - fully automatic</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select><div id="manualGrid" class="previewBox"></div><div class="btns"><button class="btn ok" onclick="generateRota()">Create Draft Rota</button></div><p class="small muted">Only one draft is allowed at a time. Publishing a new-period draft archives the old active period automatically. Deleting a draft never changes the live rota.</p></div></div></details>
@@ -1140,7 +1141,7 @@ async function saveAdminUserSettings(id){
 }
 
 function renderTeamsList(){
-  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}</td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
+  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}</td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button><button class="btn secondary" onclick="editSubTeamSettings('${esc(t.TeamID)}')">Edit structure</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
 }
 
 
@@ -1250,8 +1251,25 @@ function renderConsultantsList(){
       <td data-label="Action"><button class="btn secondary" onclick="saveConsultantSettings('${esc(c.ConsultantID)}')">Save settings</button></td>
     </tr>`).join('')}</table></div>`;
 }
-async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes'}); toast(r.message); await refreshAdminState({auditChanged:true}); }
+function updateCreateTeamPriorityOptions_(){
+  const input=qs('#teamSubNames'), menu=qs('#teamOnePriority'); if(!input || !menu) return;
+  const previous=menu.value, names=String(input.value||'').split(',').map(x=>x.trim()).filter(Boolean).slice(0,2);
+  menu.innerHTML='<option value="">Require admin decision</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if(names.includes(previous)) menu.value=previous;
+}
+function subTeamChoiceTeamOptions_(){ return (state.teams||[]).filter(t=>t.TeamType==='SubTeam').map(t=>`<option value="${esc(t.TeamID)}">${esc(t.TeamName)}</option>`).join(''); }
+function subTeamCoverageRoles_(){ const selected=qs('#subCoverageTeam'); const id=selected?selected.value:((state.teams||[]).find(t=>t.TeamType==='SubTeam')||{}).TeamID; const t=(state.teams||[]).find(x=>x.TeamID===id); const roles=String((t&&t.SubTeamConfig)||'TCU,EMCU').split(',').map(x=>x.trim()).filter(Boolean); return roles.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join(''); }
+function updateSubCoverageChoices(){ const s=qs('#subCoverageRole'); if(s) s.innerHTML=subTeamCoverageRoles_(); }
+async function saveSubTeamWeekCoverage(){
+  const teamId=qs('#subCoverageTeam')&&qs('#subCoverageTeam').value;
+  const weekStart=qs('#subCoverageWeek')&&qs('#subCoverageWeek').value;
+  const subTeam=qs('#subCoverageRole')&&qs('#subCoverageRole').value;
+  if(!teamId || !weekStart || !subTeam){toast('Choose a parent team, Sunday week start, and covered service.');return;}
+  const r=await adminCall('saveSubTeamCoverageChoice',{teamId,weekStart,subTeam});toast(r.message);
+}
+async function addTeam(){ const r=await adminCall('saveTeam',{TeamName:qs('#teamName').value,DisplayOrder:qs('#teamOrder').value,ColorHex:qs('#teamColor').value,Active:'Yes',TeamType:qs('#teamType').value,SubTeamConfig:qs('#teamSubNames').value,OneConsultantPriority:qs('#teamOnePriority').value}); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function addConsultant(){ const data={Name:qs('#consultantName').value,TeamID:qs('#consultantTeam').value,ConsultantType:qs('#consultantType').value,CanOffDuty:qs('#canOff').value,ColorHex:qs('#consultantColor').value,ActiveFrom:qs('#activeFrom').value,Notes:qs('#consultantNotes').value}; const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true}); }
+async function editSubTeamSettings(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t)return; const kind=await promptModal('Team type: Standard or SubTeam',t.TeamType||'Standard'); if(kind===null)return; if(!['Standard','SubTeam'].includes(kind)){toast('Use Standard or SubTeam.');return;} const names=kind==='SubTeam'?await promptModal('Two sub-team names separated by a comma',t.SubTeamConfig||'TCU,EMCU'):''; if(names===null)return; const priority=kind==='SubTeam'?await promptModal('If only one consultant is available, prioritize which sub-team? (leave blank to require admin decision before generation)',t.OneConsultantPriority||''):''; if(priority===null)return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:t.DisplayOrder,ColorHex:t.ColorHex,Active:t.Active,TeamType:kind,SubTeamConfig:names,OneConsultantPriority:priority}); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function updateTeamColor(id){ const t=state.teams.find(x=>x.TeamID===id); if(!t) return; const r=await adminCall('saveTeam',{TeamID:id,TeamName:t.TeamName,DisplayOrder:qs(`#teamOrder-${id}`).value,ColorHex:qs(`#teamColor-${id}`).value,Active:t.Active}); toast(r.message); await refreshAdminState({auditChanged:true}); }
 async function saveConsultantSettings(id){
   const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;
@@ -1351,7 +1369,7 @@ async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rej
 async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?',''))||''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
 function renderImpact(r){
   const cls = r.level==='Conflict'?'bad':r.level==='Warning'?'warn':r.level==='Safe'?'ok':'blue';
-  return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p>${r.preview && r.preview.length ? r.preview.map(p=>`<div class="teamblock"><b>Week ${esc(p.weekNo)}</b><div class="small muted">${esc(p.period)}</div><div class="assignment"><b>Inpatient:</b> ${list(p.Team)}</div><div class="assignment"><b>OPD:</b> ${list(p.OPD)}</div><div class="assignment"><b>Off-duty:</b> ${list(p['Off-duty'])}</div><div class="assignment"><b>Leave:</b> ${list(p.Leave)}</div><div class="assignment"><b>Inactive:</b> ${list(p.Inactive)}</div></div>`).join('') : ''}${r.conflicts && r.conflicts.length ? `<h3>Warnings / conflicts</h3><ul>${r.conflicts.map(c=>`<li><b>${esc(c.Level)}</b> Week ${esc(c.WeekNo)}: ${esc(c.Message)}</li>`).join('')}</ul>` : ''}</div>`;
+  return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p>${r.preview && r.preview.length ? r.preview.map(p=>`<div class="teamblock"><b>Week ${esc(p.weekNo)}</b><div class="small muted">${esc(p.period)}</div><div class="assignment"><b>Inpatient:</b> ${list(p.Team)}</div>${['TCU','EMCU'].map(role=>p[role]?`<div class="assignment"><b>${esc(role)}:</b> ${list(p[role])}</div>`:'').join('')}${p.Reserve?`<div class="assignment"><b>Reserve:</b> ${list(p.Reserve)}</div>`:''}<div class="assignment"><b>OPD:</b> ${list(p.OPD)}</div><div class="assignment"><b>Off-duty:</b> ${list(p['Off-duty'])}</div><div class="assignment"><b>Leave:</b> ${list(p.Leave)}</div><div class="assignment"><b>Inactive:</b> ${list(p.Inactive)}</div></div>`).join('') : ''}${r.conflicts && r.conflicts.length ? `<h3>Warnings / conflicts</h3><ul>${r.conflicts.map(c=>`<li><b>${esc(c.Level)}</b> Week ${esc(c.WeekNo)}: ${esc(c.Message)}</li>`).join('')}</ul>` : ''}</div>`;
 }
 
 
@@ -1381,9 +1399,9 @@ function renderEditorWeek(week){
     const sid = safeDomId(t.teamId);
     return `<div class="teamblock" data-editor-team="${esc(t.teamId)}">
       <h3>${teamBadge(t)}</h3>
-      <label>Inpatient Team</label>
+      ${(t.subTeamNames||[]).length ? `<label>${esc(t.subTeamNames[0])}</label><select onchange="appendManualNameToField(this,'edit-tcu-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select><textarea id="edit-tcu-${esc(sid)}">${esc(namesText(t[t.subTeamNames[0]]))}</textarea><label>${esc(t.subTeamNames[1])}</label><select onchange="appendManualNameToField(this,'edit-emcu-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select><textarea id="edit-emcu-${esc(sid)}">${esc(namesText(t[t.subTeamNames[1]]))}</textarea><label>Reserve</label><select onchange="appendManualNameToField(this,'edit-reserve-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select><textarea id="edit-reserve-${esc(sid)}">${esc(namesText(t.Reserve))}</textarea>` : `<label>Inpatient Team</label>
       <select onchange="appendManualNameToField(this,'edit-team-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select>
-      <textarea id="edit-team-${esc(sid)}" rows="2">${esc(namesText(t.Team))}</textarea>
+      <textarea id="edit-team-${esc(sid)}" rows="2">${esc(namesText(t.Team))}</textarea>`}
       <label>OPD</label>
       <select onchange="appendManualNameToField(this,'edit-opd-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select>
       <textarea id="edit-opd-${esc(sid)}" rows="3">${esc(namesText(t.OPD))}</textarea>
@@ -1418,6 +1436,9 @@ function collectManualEdits(){
     return {
       teamId: t.teamId,
       teamText: (qs(`#edit-team-${sid}`) || {}).value || '',
+      tcuText: (qs(`#edit-tcu-${sid}`) || {}).value || '',
+      emcuText: (qs(`#edit-emcu-${sid}`) || {}).value || '',
+      reserveText: (qs(`#edit-reserve-${sid}`) || {}).value || '',
       opdText: (qs(`#edit-opd-${sid}`) || {}).value || '',
       offText: (qs(`#edit-off-${sid}`) || {}).value || ''
     };
@@ -1437,7 +1458,7 @@ async function publishManualEdit(){
 function renderSettings(){
   if(!adminUnlocked){ qs('#tab-settings').innerHTML = ''; return; }
   if(!isMainAdmin()){ qs('#tab-settings').innerHTML = '<div class="card"><h2>Setup</h2><p class="sub">Setup is limited to the main admin.</p></div>'; return; }
-  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>My Admin Login</h2><p class="sub">Signed in as <b>${esc((state.adminSession||{}).username||'admin')}</b>. Changing the PIN signs out existing sessions.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Each created team has one inpatient Team consultant weekly.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional, but the same consultant must never be Off-duty two weeks in a row.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is skipped when there are only 2 available consultants, or when assigning it would repeat the same consultant Off-duty two weeks in a row.</li><li>Inpatient Team should not be assigned to the same consultant two weeks in a row unless all other consultants in that team are unavailable because of Leave/Inactive status.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactive consultant is removed from assignments from the effective week onward.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>A consultant marked Special is normally assigned to inpatient Team every 6 weeks. If on approved leave when due, the Team turn moves to the next available safe week. The Can Off-duty setting remains absolute and the special turn must not unfairly delay eligible consultants' normal Off-duty cycle.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require a valid temporary session token created by username + PIN sign-in. The PIN is not stored in the browser after login.</li><li>The live RotaAssignments sheet keeps the current official amendment and active drafts. Archived amendments are stored separately by rota period to control long-term sheet size.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
+  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>My Admin Login</h2><p class="sub">Signed in as <b>${esc((state.adminSession||{}).username||'admin')}</b>. Changing the PIN signs out existing sessions.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Standard teams have one inpatient Team consultant weekly. Sub-team parent teams cover both configured inpatient services independently.</li><li>For sub-team teams: leave cancels OPD, with remaining eligible consultants allocated to Off-duty and active Reserve; coverage shortages are flagged as critical.</li><li>Special6 consultant inpatient duties count across both sub-teams and normally recur every sixth week.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional, but the same consultant must never be Off-duty two weeks in a row.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is skipped when there are only 2 available consultants, or when assigning it would repeat the same consultant Off-duty two weeks in a row.</li><li>Inpatient Team should not be assigned to the same consultant two weeks in a row unless all other consultants in that team are unavailable because of Leave/Inactive status.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactive consultant is removed from assignments from the effective week onward.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>A consultant marked Special is normally assigned to inpatient Team every 6 weeks. If on approved leave when due, the Team turn moves to the next available safe week. The Can Off-duty setting remains absolute and the special turn must not unfairly delay eligible consultants' normal Off-duty cycle.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require a valid temporary session token created by username + PIN sign-in. The PIN is not stored in the browser after login.</li><li>The live RotaAssignments sheet keeps the current official amendment and active drafts. Archived amendments are stored separately by rota period to control long-term sheet size.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
 }
 async function changeAdminPin(){
   const pin = (qs('#newAdminPin') && qs('#newAdminPin').value || '').trim();

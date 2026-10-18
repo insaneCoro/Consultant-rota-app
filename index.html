@@ -11,8 +11,8 @@
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="manifest" href="manifest.webmanifest?v=2.0.0">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=1.9.4">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=1.9.4">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=2.3.0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2.3.0">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -212,7 +212,7 @@
 <body>
   <header>
     <div class="headerRow">
-      <img class="brandLogo" src="icons/header-logo.png?v=1.9.4" alt="">
+      <img class="brandLogo" src="icons/header-logo.png?v=2.3.0" alt="">
       <div class="headerText">
         <h1>Consultant Rota System</h1>
         <p id="versionLine"></p>
@@ -264,7 +264,7 @@ function safeLocalGet(key){ try { return window.localStorage ? (localStorage.get
 function safeLocalSet(key,value){ try { if(window.localStorage) localStorage.setItem(key,value); } catch(e){} }
 function safeLocalRemove(key){ try { if(window.localStorage) localStorage.removeItem(key); } catch(e){} }
 const STARTUP_CACHE_KEY = 'rotaStartupPayload_v2_0_rc1';
-const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v1_9';
+const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v2_3';
 rotaTeamFilter = safeLocalGet(ROTA_FILTER_CACHE_KEY) || 'AUTO';
 let startupRefreshing = false;
 let startupCacheUsed = false;
@@ -458,8 +458,10 @@ async function loadAdminData(){
     const data = await call('getAdminData', adminToken, 'dashboard');
     state.adminTeams=data.teams||[]; state.adminConsultants=data.consultants||[]; state.adminLeaveRequests=data.leaveRequests||[];
     Object.assign(state, data);
-    state.teams=publicTeams.length?publicTeams:(data.allTeams||data.teams||[]);
-    state.consultants=publicConsultants.length?publicConsultants:(data.consultants||[]);
+    // Admin configuration must not be overwritten with an older cached public
+    // snapshot. Prefer the freshly fetched complete team list after every save.
+    state.teams=Array.isArray(data.allTeams)?data.allTeams:(publicTeams.length?publicTeams:(data.teams||[]));
+    state.consultants=(data.adminSession&&data.adminSession.isMainAdmin&&Array.isArray(data.consultants))?data.consultants:(publicConsultants.length?publicConsultants:(data.consultants||[]));
     adminUnlocked = true; adminDataLoaded = true; refreshNav();
     leaveApprovalDataLoaded = !!data.leaveRequestsIncluded;
     safeSessionSet('rotaAdminToken', adminToken); safeSessionSet('rotaAdminUsername', adminUsername || (data.adminSession&&data.adminSession.username)||'');
@@ -483,8 +485,8 @@ async function loadLeaveApprovalData(){
   state.adminConsultants=data.consultants||[];
   state.adminLeaveRequests=data.leaveRequests||[];
   state.allTeams=data.allTeams||state.allTeams||[];
-  state.teams=publicTeams.length?publicTeams:(data.allTeams||data.teams||[]);
-  state.consultants=publicConsultants.length?publicConsultants:(data.consultants||[]);
+  state.teams=Array.isArray(data.allTeams)?data.allTeams:(publicTeams.length?publicTeams:(data.teams||[]));
+  state.consultants=(data.adminSession&&data.adminSession.isMainAdmin&&Array.isArray(data.consultants))?data.consultants:(publicConsultants.length?publicConsultants:(data.consultants||[]));
   leaveApprovalDataLoaded=!!data.leaveRequestsIncluded;
   refreshNav();
   return data;
@@ -630,7 +632,7 @@ function updateVersionLine(){
   qs('#versionLine').textContent = latest ? `${latest.PeriodName || 'Active rota'} · Amendment ${latest.AmendmentNo}${updated}` : 'No official rota generated yet';
   updateConnectionBadge();
 }
-function markRotaStale(){ safeLocalRemove(STARTUP_CACHE_KEY); startupCacheUsed=false; state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta: null, weeks: [], viewMode:'empty' }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
+function markRotaStale(){ state.editorSubTeamApiVersion=0; safeLocalRemove(STARTUP_CACHE_KEY); startupCacheUsed=false; state.latestRota = state.latestVersion ? { meta: state.latestVersion, weeks: [], notLoaded: true, viewMode:'empty' } : { meta: null, weeks: [], viewMode:'empty' }; state.editorWeekList = null; state.editorWeek = null; state.latestExport = null; editorWeekNo=''; editorTeamId=''; }
 async function ensureLatestRotaLoaded(full=false, refresh=false){
   if(rotaLoading) return;
   const cur = state.latestRota || {weeks:[]};
@@ -683,6 +685,7 @@ async function loadEditorWeekTeam(weekNo, teamId){
   try{
     const r = await adminCall('getRotaWeekTeamView', Number(weekNo), teamId);
     state.editorWeek = r.week;
+    state.editorSubTeamApiVersion = Number(r.subTeamEditorVersion||0);
     editorWeekNo = String(weekNo);
     editorTeamId = String(teamId);
     state.latestVersion = r.meta || state.latestVersion;
@@ -797,6 +800,8 @@ function renderRota(){
   const summary = state.latestRota && state.latestRota.summary;
   const exportBox = state.latestExport ? renderExportReadyBox(state.latestExport) : '';
   const filterBar = allWeeks.length ? `<div class="card"><label>Rota view</label><select onchange="onRotaTeamFilterChange(this)">${rotaTeamFilterOptions()}</select><p class="small muted">For multiple teams, the default view shows all teams for the current week. Choose one team to browse all eight weeks quickly.</p></div>` : '';
+  const needsBackendUpgrade=(state.teams||[]).some(t=>t.TeamType==='SubTeam') && Number((state.app||{}).subTeamFeatureVersion||0)<3;
+  const backendNotice=needsBackendUpgrade ? '<div class="viewNotice dangerText">This screen is connected to an older rota backend, or is showing cached data. Update and deploy the matching Code.gs, then refresh. Sub-team changes cannot be verified until the backend is updated.</div>' : '';
   const sync = startupRefreshing ? `<div class="syncNote"><span class="syncDot"></span>Updating the live rota in the background…</div>` : '';
   const notice = allWeeks.length && isWindow ? `<div class="viewNotice">${esc(summary || 'Showing current week and upcoming weeks. Use View Full 52-Week Rota if you need the complete rota.')} ${sync}</div>` : (sync ? `<div class="viewNotice">${sync}</div>` : '');
   const body = rotaLoading || (startupRefreshing && !allWeeks.length)
@@ -811,6 +816,7 @@ function renderRota(){
       <h2>Latest Rota</h2>
       ${meta ? `<p class="sub"><b>${esc(meta.PeriodName || 'Active rota period')}</b> · Amendment No. ${esc(meta.AmendmentNo)} · ${esc(meta.StartDate)} to ${esc(meta.EndDate)}</p>` : `<p class="sub">No rota generated yet.</p>`}
       ${notice}
+      ${backendNotice}
       <div class="btns">
         <button class="btn blue" onclick="downloadLatest()" ${meta?'':'disabled'}>Prepare Latest Rota Download</button>
         ${meta ? (isFull
@@ -837,13 +843,16 @@ function roleTile_(label, iconKey, arr, span2, critical){
 }
 function renderTeamRoleBlock_(t){
   const color = cleanColor(t.teamColor, '#0f172a');
+  const split = (t.subTeamNames||[]).length > 0;
+  const pending = split && (t.Team||[]).length > 0 && !(t.subTeamNames||[]).some(role=>(t[role]||[]).length);
   const leaveNames = (t.Leave||[]).map(p=>typeof p==='string'?p:p.name);
   const inactiveNames = (t.Inactive||[]).map(p=>typeof p==='string'?p:p.name);
   const notes = leaveNames.concat(inactiveNames.map(n=>n+' (inactive)'));
   return `<div class="teamblock">
     <div class="teamHead"><span class="teamSquare" style="background:${esc(color)};color:${contrastColor(color)}">${esc((t.teamName||t.TeamName||'').slice(0,4))}</span><span class="small muted">Team on duty this week</span></div>
     <div class="roleGrid" style="--tileBg:${tintBg_(color,0.08)};--tileBorder:${tintBg_(color,0.22)}">
-      ${(t.subTeamNames||[]).length ? t.subTeamNames.map(role=>roleTile_(role,'inpatient',t[role],false,true)).join('') : roleTile_('Inpatient','inpatient',t.Team)}
+      ${pending ? `<div class="viewNotice" style="grid-column:1/-1"><b>Sub-teams configured — awaiting published regeneration.</b> This week still uses the original inpatient Team assignment; no sub-team coverage is confirmed yet.</div>${roleTile_('Original inpatient Team','inpatient',t.Team,true)}` : ''}
+      ${split ? t.subTeamNames.map(role=>roleTile_(role,'inpatient',t[role],false,!pending)).join('') : roleTile_('Inpatient','inpatient',t.Team)}
       ${roleTile_('OPD', 'opd', t.OPD)}
       ${roleTile_('Off-duty', 'off', t['Off-duty'], true)}
       ${(t.subTeamNames||[]).length || (t.Reserve||[]).length ? roleTile_('Reserve / Backup','inpatient',t.Reserve,true) : ''}
@@ -880,6 +889,13 @@ function rotaTeamFilterOptions(){
     (multi ? '<option value="ALL"'+(rotaTeamFilter==='ALL'?' selected':'')+'>All teams — all loaded weeks (slower)</option>' : '');
 }
 function onRotaTeamFilterChange(sel){ rotaTeamFilter = sel.value; safeLocalSet(ROTA_FILTER_CACHE_KEY, rotaTeamFilter); renderRota(); }
+function renderInpatientCell_(team){
+  const roles=team.subTeamNames||[];
+  if(!roles.length)return list(team.Team);
+  const pending=!!((team.Team||[]).length && !roles.some(role=>(team[role]||[]).length));
+  const prior=pending?`<div class="viewNotice"><b>Awaiting published sub-team amendment</b><div>Original Team: ${list(team.Team)}</div></div>`:'';
+  return prior+roles.map(role=>`<div><b>${esc(role)}:</b> ${list(team[role])}${(team[role]||[]).length?'':pending?' <span class="pill warn">Pending</span>':' <span class="pill bad">Uncovered</span>'}</div>`).join('');
+}
 function renderRotaTable(weeks){
   const rows = [];
   weeks.forEach(w=>{
@@ -890,7 +906,7 @@ function renderRotaTable(weeks){
       rows.push(`<tr>
         <td><b>${esc(w.weekNo)}</b><br><span class="small muted">${esc(w.period)}</span></td>
         <td>${teamBadge(t)}</td>
-        <td>${(t.subTeamNames||[]).length ? t.subTeamNames.map(role=>`<div><b>${esc(role)}:</b> ${list(t[role])}${!(t[role]||[]).length?' <span class="pill bad">Uncovered</span>':''}</div>`).join('') : list(t.Team)}</td>
+<td>${renderInpatientCell_(t)}</td>
         <td>${list(t.OPD)}</td>
         <td>${list(t['Off-duty'])}${(t.subTeamNames||[]).length || (t.Reserve||[]).length?`<div style="margin-top:6px"><b>Reserve:</b> ${list(t.Reserve)}</div>`:''}</td>
         <td>${notes.length ? `<span class="pill warn">${esc(notes.join(', '))}</span>` : '<span class="muted">—</span>'}</td>
@@ -1512,20 +1528,30 @@ function renderRotaEditor(){
   const weekOptions = list.map(w=>`<option value="${esc(w.weekNo)}"${selAttr(w.weekNo, editorWeekNo)}>Week ${esc(w.weekNo)} · ${esc(w.periodExport || w.period)}</option>`).join('');
   const teamOptionsHtml = activeTeams().map(t=>`<option value="${esc(t.TeamID)}"${selAttr(t.TeamID, editorTeamId)}>${esc(t.TeamName)}</option>`).join('');
   const selectedTitle = selected && selected.teams && selected.teams[0] ? `${esc(selected.teams[0].teamName)} · Week ${esc(selected.weekNo)} · ${esc(selected.periodExport || selected.period)}` : 'Selected week/team';
+  const selectedConfig = (state.teams||[]).find(t=>t.TeamID===editorTeamId);
+  const backendMismatch = !!(selected && selectedConfig && selectedConfig.TeamType==='SubTeam' && Number(state.editorSubTeamApiVersion||0)<3);
   qs('#tab-editor').innerHTML = `
     <div class="card"><h2>Manual Rota Edit</h2><p class="sub">Choose the week and team, then tap Load. For a converted team, edit each named sub-team separately. Publishing changes this team from the selected week forward; other teams remain unchanged.</p>
       <div class="row"><div><label>Select week</label><select id="editorWeekSelect" onchange="onEditorSelectionChange()">${weekOptions}</select></div><div><label>Select team</label><select id="editorTeamSelect" onchange="onEditorSelectionChange()">${teamOptionsHtml}</select></div></div>
       <div class="btns"><button class="btn secondary" onclick="loadSelectedEditorTeam()">Load / Refresh Selected Team</button></div>
       <label>Amendment reason</label><input id="manualReason" placeholder="Example: External consultant covering Team A during approved leave">
     </div>
-    <div class="card"><h2>${selectedTitle}</h2>${editorLoading ? '<p class="muted">Loading selected team…</p>' : selected ? renderEditorWeek(selected) : '<p class="muted">Choose a week and team, then tap Load / Refresh Selected Team.</p>'}${selected ? '<div class="btns"><button class="btn ok" onclick="publishManualEdit()">Publish Manual Amendment</button><button class="btn secondary" onclick="loadSelectedEditorTeam()">Refresh Team</button></div>' : ''}<p class="small muted">You can select from the same team or write one name per line. Same-team consultants affect the following auto-rotation. External typed names appear as manual cover only and are not used for future auto-generation.</p></div>`;
+    <div class="card"><h2>${selectedTitle}</h2>${editorLoading ? '<p class="muted">Loading selected team…</p>' : selected ? renderEditorWeek(selected) : '<p class="muted">Choose a week and team, then tap Load / Refresh Selected Team.</p>'}${backendMismatch?'<div class="viewNotice dangerText">Backend version mismatch: update Code.gs and redeploy the Apps Script API before editing sub-teams. Publication is disabled to protect existing assignments.</div>':''}${selected ? `<div class="btns"><button class="btn ok" onclick="publishManualEdit()" ${backendMismatch?'disabled':''}>Publish Manual Amendment</button><button class="btn secondary" onclick="loadSelectedEditorTeam()">Refresh Team</button></div>` : ''}<p class="small muted">You can select from the same team or write one name per line. Same-team consultants affect the following auto-rotation. External typed names appear as manual cover only and are not used for future auto-generation.</p></div>`;
 }
 function renderEditorWeek(week){
   return (week.teams||[]).map(t=>{
     const sid = safeDomId(t.teamId);
+    const configured=(state.teams||[]).find(x=>x.TeamID===t.teamId);
+    const configuredNames=configured && configured.TeamType==='SubTeam'?String(configured.SubTeamConfig||'').split(',').map(n=>n.trim()).filter(Boolean):[];
+    if(configuredNames.length===2 && !(t.subTeamNames||[]).length) t.subTeamNames=configuredNames;
+    const effective=String(t.subTeamEffectiveFrom||(configured&&configured.SubTeamFrom)||'').slice(0,10);
+    const weekStart=weekStartISO_(state.latestVersion&&state.latestVersion.StartDate,Number(week.weekNo));
+    const needsActivation=configuredNames.length===2 && (!effective || effective>weekStart);
+    t.requiresSubTeamActivation=needsActivation;
     return `<div class="teamblock" data-editor-team="${esc(t.teamId)}">
       <h3>${teamBadge(t)}</h3>
-      ${(t.subTeamNames||[]).length && (t.Team||[]).length ? `<div class="viewNotice"><b>Existing Team assignment:</b> ${namesHtml(t.Team)}. This week still uses the former Standard structure. Select consultants for both named sub-teams before publishing a manual amendment, or first generate a selected-team Draft.</div>`:''}
+      ${needsActivation ? `<div class="viewNotice"><b>Sub-teams are not active for this week.</b> Saved activation: ${esc(effective||'not set')}. To use these named assignments, activate the team from this Sunday first. This does not change already published assignments.<div class="btns"><button class="btn blue" onclick="activateSubTeamsForEditor('${esc(t.teamId)}')">Activate sub-teams from this week</button></div></div>`:''}
+      ${(t.subTeamNames||[]).length && (t.Team||[]).length ? `<div class="viewNotice"><b>Published legacy Team assignment:</b> ${namesHtml(t.Team)}. It will be replaced only after you publish a sub-team amendment.</div>`:''}
       ${(t.subTeamNames||[]).length ? `<label>${esc(t.subTeamNames[0])}</label><select onchange="appendManualNameToField(this,'edit-tcu-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select><textarea id="edit-tcu-${esc(sid)}">${esc(namesText(t[t.subTeamNames[0]]))}</textarea><label>${esc(t.subTeamNames[1])}</label><select onchange="appendManualNameToField(this,'edit-emcu-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select><textarea id="edit-emcu-${esc(sid)}">${esc(namesText(t[t.subTeamNames[1]]))}</textarea><label>Reserve</label><select onchange="appendManualNameToField(this,'edit-reserve-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select><textarea id="edit-reserve-${esc(sid)}">${esc(namesText(t.Reserve))}</textarea>` : `<label>Inpatient Team</label>
       <select onchange="appendManualNameToField(this,'edit-team-${esc(sid)}')">${editorConsultantNameOptions(t.teamId)}</select>
       <textarea id="edit-team-${esc(sid)}" rows="2">${esc(namesText(t.Team))}</textarea>`}
@@ -1543,6 +1569,26 @@ function renderEditorWeek(week){
 
 function namesText(list){ return (list||[]).map(p=>typeof p==='string'?p:(p.name||'')).join('\n'); }
 function namesHtml(list){ return (list&&list.length) ? list.map(chip).join('') : '<span class="muted">-</span>'; }
+function weekStartISO_(startISO,weekNo){
+  if(!startISO || !weekNo)return '';
+  const d=new Date(String(startISO).slice(0,10)+'T12:00:00');
+  if(Number.isNaN(d.getTime()))return '';
+  d.setDate(d.getDate()+(weekNo-1)*7);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+async function activateSubTeamsForEditor(teamId){
+  const team=(state.teams||[]).find(x=>x.TeamID===teamId);
+  const start=weekStartISO_(state.latestVersion && state.latestVersion.StartDate,Number(editorWeekNo));
+  if(!team || team.TeamType!=='SubTeam'){await alertModal('Configure the sub-team names first in Admin → Team Settings.');return;}
+  if(!start || start<thisSundayDateISO_()){await alertModal('Completed weeks cannot be converted. Choose the current or a future week and try again.');return;}
+  if(!(await confirmModal(`Activate ${team.SubTeamConfig.replace(',', ' / ')} for ${team.TeamName} starting ${start}? This saves team configuration only; the published rota will change when you publish the manual amendment.`, 'Activate')))return;
+  try{
+    const out=await adminCall('saveTeam',{TeamID:team.TeamID,TeamName:team.TeamName,DisplayOrder:team.DisplayOrder,ColorHex:team.ColorHex,Active:team.Active,TeamType:'SubTeam',SubTeamConfig:team.SubTeamConfig,OneConsultantPriority:team.OneConsultantPriority||'',SubTeamFrom:start});
+    toast(out.message);
+    await loadAdminData();
+    await loadEditorWeekTeam(Number(editorWeekNo),teamId);
+  }catch(e){await alertModal('Activation failed: '+(e.message||String(e)));}
+}
 function onEditorSelectionChange(){
   editorWeekNo = qs('#editorWeekSelect') ? qs('#editorWeekSelect').value : editorWeekNo;
   editorTeamId = qs('#editorTeamSelect') ? qs('#editorTeamSelect').value : editorTeamId;
@@ -1562,6 +1608,7 @@ function collectManualEdits(){
     const sid = safeDomId(t.teamId);
     return {
       teamId: t.teamId,
+      subTeamFieldsSubmitted: !!((t.subTeamNames||[]).length),
       teamText: (qs(`#edit-team-${sid}`) || {}).value || '',
       tcuText: (qs(`#edit-tcu-${sid}`) || {}).value || '',
       emcuText: (qs(`#edit-emcu-${sid}`) || {}).value || '',
@@ -1574,6 +1621,9 @@ function collectManualEdits(){
 async function publishManualEdit(){
   const reason = (qs('#manualReason') && qs('#manualReason').value || '').trim();
   if(!editorWeekNo){ toast('Select a week first.'); return; }
+  const t=state.editorWeek && state.editorWeek.teams && state.editorWeek.teams[0];
+  if(t && (t.subTeamNames||[]).length && Number(state.editorSubTeamApiVersion||0)<3){ await alertModal('Backend not updated for sub-team Manual Edit. Deploy the matching Code.gs first. No rota was changed.'); return; }
+  if(t && t.requiresSubTeamActivation){ await alertModal('These sub-teams are not yet active for the selected week. Use Activate sub-teams from this week, reload, and then publish the manual amendment.'); return; }
   if(!(await confirmModal('Publish this manual week as a new official amendment? The edited week will stay locked and subsequent weeks will be recalculated.'))) return;
   const r = await adminCall('publishManualEditedWeek', { weekNo: Number(editorWeekNo), reason: reason, edits: collectManualEdits() });
   toast(r.message);

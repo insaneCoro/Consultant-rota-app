@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=3.6.0">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=3.6.0">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=3.6.0">
+  <link rel="manifest" href="manifest.webmanifest?v=3.7.0">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=3.7.0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=3.7.0">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -263,7 +263,7 @@ function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.
 function safeLocalGet(key){ try { return window.localStorage ? (localStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
 function safeLocalSet(key,value){ try { if(window.localStorage) localStorage.setItem(key,value); } catch(e){} }
 function safeLocalRemove(key){ try { if(window.localStorage) localStorage.removeItem(key); } catch(e){} }
-const STARTUP_CACHE_KEY = 'rotaStartupPayload_v3_6_rc17';
+const STARTUP_CACHE_KEY = 'rotaStartupPayload_v3_8_rc19';
 const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v2_5';
 rotaTeamFilter = safeLocalGet(ROTA_FILTER_CACHE_KEY) || 'AUTO';
 let startupRefreshing = false;
@@ -273,6 +273,12 @@ let adminUsername = safeSessionGet('rotaAdminUsername');
 let adminUnlocked = !!adminToken;
 try{ state.adminSession=JSON.parse(safeSessionGet('rotaAdminSession')||'null'); }catch(_){ state.adminSession=null; }
 let adminDataLoaded = false;
+const recentApiTimings = [];
+function recordApiTiming_(name, ms, ok, attempts){
+  // In-memory only. No API arguments, PIN, token, consultant data, or URLs.
+  recentApiTimings.unshift({name:name, ms:Math.round(ms), ok:!!ok, attempts:attempts});
+  if(recentApiTimings.length>20) recentApiTimings.length=20;
+}
 let adminDataLoading = false;
 let leaveApprovalDataLoaded = false;
 let leaveApprovalDataLoading = false;
@@ -317,7 +323,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=3.6.0',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=3.7.0',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });
@@ -380,14 +386,14 @@ function statusPill(value){
   let cls = 'blue';
   if(['official','safe','approved','ok','active'].includes(key)) cls = 'ok';
   else if(['archived','pending','warning','yellow','draft'].includes(key)) cls = 'warn';
-  else if(['voided','cancelled','rejected','conflict','red','inactive'].includes(key)) cls = 'bad';
+  else if(['voided','cancelled','rejected','superseded','conflict','red','inactive'].includes(key)) cls = 'bad';
   return `<span class="pill ${cls}">${esc(text)}</span>`;
 }
 function apiLoadingMessage(fn){
   const map={
     getBootstrap:'Loading CTU ROTA…', getStartupPayload:'Loading CTU ROTA…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
     checkLeaveAvailability:'Checking leave overlap…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
-    exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
+    exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', amendApprovedLeave:'Amending approved leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
     saveAdminUser:'Saving sub-admin…', archiveHistoricalAssignments:'Archiving historical assignments…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
   };
   return map[fn] || 'Working…';
@@ -410,12 +416,15 @@ function requestApi(fn, args, options={}){
   // Only guaranteed read-only methods may be retried. Retrying an uncertain
   // leave approval or staffing update could publish a second amendment.
   const readOnly=new Set(['getStartupPayload','getBootstrap','getLatestRotaWindow',
-    'getLatestRotaView','getAdminData','getAdminLeaveData','getRotaWeekList',
+    'getLatestRotaView','getAdminData','getAdminSession','getAdminLeaveData','getRotaWeekList',
     'getRotaWeekTeamView','getLeaveRequestsForConsultant','getAuditLog',
     'getAssignmentStorageSummary']);
   const safeRetry=readOnly.has(fn);
+  const startedAt=Date.now();
+  let attempts=0, succeeded=false;
   const timeoutMs=safeRetry?60000:150000;
   const perform=async(attempt)=>{
+    attempts++;
     const controller=typeof AbortController!=='undefined'?new AbortController():null;
     const timer=setTimeout(()=>{if(controller)controller.abort();},timeoutMs);
     try{
@@ -435,6 +444,7 @@ function requestApi(fn, args, options={}){
         err.retryable=true;throw err;
       }
       if(!response.ok)throw new Error(response.error||'Request failed.');
+      succeeded=true;
       return response.result;
     }catch(err){
       const transient=err.name==='AbortError'||err.name==='TypeError'||err.retryable===true;
@@ -450,7 +460,10 @@ function requestApi(fn, args, options={}){
     if(!navigator.onLine)message='You appear to be offline. Reconnect and try again.';
     if(showToast)toast(message);
     throw new Error(message);
-  }).finally(()=>{if(showOverlay)setLoading(false);});
+  }).finally(()=>{
+    recordApiTiming_(fn,Date.now()-startedAt,succeeded,attempts);
+    if(showOverlay)setLoading(false);
+  });
 }
 function call(fn, ...args){ return requestApi(fn, args, {overlay:true, toastErrors:true}); }
 function callQuiet(fn, ...args){ return requestApi(fn, args, {overlay:false, toastErrors:false}); }
@@ -718,10 +731,6 @@ async function ensureEditorWeekListLoaded(){
     state.editorWeek = null; // do not auto-load the week; manual edit loads one team only after admin taps Load.
   }
   finally{ editorLoading = false; if(currentTab==='editor') renderRotaEditor(); }
-}
-async function loadEditorWeek(weekNo){
-  const teamId = editorTeamId || (qs('#editorTeamSelect') && qs('#editorTeamSelect').value) || '';
-  return loadEditorWeekTeam(weekNo, teamId);
 }
 async function loadEditorWeekTeam(weekNo, teamId){
   if(!weekNo || !teamId){ toast('Select a week and a team.'); return; }
@@ -1154,6 +1163,14 @@ function renderUserLeaveCheck(r){
   return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p><div class="small muted">Approved overlapping leave in same team: <b>${esc(o.approvedCount || 0)}</b> · Pending overlapping leave in same team: <b>${esc(o.pendingCount || 0)}</b></div>${overlapRows}<p class="small muted">This check only looks for overlapping leave requests from other consultants in the same team. It does not preview or simulate the rota. Final approval remains with admin.</p></div>`;
 }
 
+function renderPerfDiagnostics_(){
+  if(!recentApiTimings.length)return '<p class="small muted">No requests recorded in this page session yet.</p>';
+  const rows=recentApiTimings.slice(0,15);
+  return `<div class="scroll"><table><tr><th>Action</th><th>Duration</th><th>Calls</th><th>Result</th></tr>${rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.ms)} ms</td><td>${esc(x.attempts)}</td><td>${x.ok?'OK':'Failed'}</td></tr>`).join('')}</table></div>`;
+}
+function refreshPerfDiagnostics_(){
+  const target=qs('#perfDiagBody');if(target)target.innerHTML=renderPerfDiagnostics_();
+}
 function renderAdmin(){
   if(!adminUnlocked){ qs('#tab-admin').innerHTML = renderAdminLock('Admin Login'); return; }
   if(adminDataLoading || !adminDataLoaded){ qs('#tab-admin').innerHTML = `<div class="card"><h2>Admin Panel</h2><p class="sub">Loading admin tools for this browser session…</p><div class="previewBox"><span class="pill warn">Loading</span> Please wait.</div></div>`; return; }
@@ -1185,6 +1202,7 @@ function renderAdmin(){
         </div></div></div></details>
       <details class="adminPanel"><summary>Rota Periods, Versions & Archive</summary><div class="adminPanelBody"><div class="card"><h2>Rota Periods and Amendments</h2><p class="sub">Each rota period has its own amendment numbering. New periods begin at Amendment 1. Archived periods remain available for audit and controlled restoration.</p>${renderVersionsList()}</div>${renderAssignmentStoragePanel()}</div></details>
       <details class="adminPanel"><summary>Mark Consultant Inactive</summary><div class="adminPanelBody"><div class="card"><h2>Mark Consultant Inactive</h2><label>Consultant</label><select id="inactiveConsultant">${consultantOptions('', true)}</select><div class="row"><div><label>Inactive from</label><input type="date" id="inactiveFrom"></div><div><label>Reason / note</label><input id="inactiveNote"></div></div><div class="btns"><button class="btn secondary" onclick="previewInactive()">Preview Impact</button><button class="btn bad" onclick="confirmInactive()">Confirm Inactive</button></div><div id="inactivePreview"></div></div></div></details>
+      <details class="adminPanel"><summary>Performance Diagnostics</summary><div class="adminPanelBody"><div class="card"><h2>Recent request timings</h2><p class="small muted">Local browser-session timings only. Check Apps Script Executions for server-side Sheet reads/writes. No credentials or consultant details are stored here.</p><div id="perfDiagBody">${renderPerfDiagnostics_()}</div><div class="btns"><button class="btn secondary" onclick="refreshPerfDiagnostics_()">Refresh timings</button></div></div></div></details>
       <details class="adminPanel"><summary>Audit Log</summary><div class="adminPanelBody"><div class="card"><h2>Recent Administrative Activity</h2><p class="sub">Records approvals, publishing, manual edits, settings changes, exports, and other important actions. PIN values are never written to this log.</p><div class="btns"><button class="btn secondary" onclick="loadAuditLog(true)">Load / Refresh Audit Log</button></div><div id="auditLogPanel">${renderAuditLog()}</div></div></div></details>
       <details class="adminPanel"><summary>Danger Zone</summary><div class="adminPanelBody"><div class="card"><h2>Danger Zone</h2><p class="sub dangerText">Clears generated rota periods, versions, assignments, conflicts, and override logs only. Teams, consultants, and leave requests remain.</p><button class="btn bad" onclick="resetRotaOnly()">Clear Generated Rota</button></div></div></details>
     </div>`;
@@ -1559,11 +1577,6 @@ async function saveConsultantSettings(id){
   if(data.CurrentStatus==='Inactive' && !data.InactiveFrom){ toast('Inactive status needs an inactive-from date.'); return; }
   const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
 }
-async function updateConsultantColor(id){
-  const c=state.consultants.find(x=>x.ConsultantID===id); if(!c) return;
-  const data={ConsultantID:id,Name:c.Name,TeamID:c.TeamID,CanOffDuty:c.CanOffDuty,SubTeamAssignment:c.SubTeamAssignment||'Any',ColorHex:qs(`#consultantColor-${id}`).value,CurrentStatus:c.CurrentStatus,ActiveFrom:c.ActiveFrom,InactiveFrom:c.InactiveFrom,Notes:c.Notes};
-  const r=await adminCall('saveConsultant',data); toast(r.message); await refreshAdminState({rotaChanged:true,auditChanged:true});
-}
 
 function renderManualGrid(){
   const el=qs('#manualGrid'); if(!el) return;
@@ -1674,21 +1687,40 @@ function renderRequests(){
   const history = adminLeaves.filter(l=>!['Pending','Approved'].includes(l.Status)).slice().sort((a,b)=>String(b.AdminDecisionDate||b.SubmittedAt||'').localeCompare(String(a.AdminDecisionDate||a.SubmittedAt||''))).slice(0,30);
   const scope = isMainAdmin() ? 'All teams' : `Assigned team only: ${esc((state.adminSession||{}).teamName || '')}`;
   const signOut = isTeamSubAdmin() ? '<button class="btn warn" onclick="logoutAdmin()">Sign out</button>' : '';
-  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshLeaveApprovalData()">Refresh Leave Data</button>${signOut}</div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
+  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshLeaveApprovalData()">Refresh Leave Data</button>${signOut}</div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled / Superseded</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
 }
 function renderLeaveRequestCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="previewLeave('${esc(l.LeaveID)}')">Preview</button><button class="btn ok" onclick="approveLeaveReq('${esc(l.LeaveID)}')">Approve</button><button class="btn bad" onclick="rejectLeaveReq('${esc(l.LeaveID)}')">Reject</button></div><div id="preview-${esc(l.LeaveID)}"></div></div>`;
 }
 function renderApprovedLeaveCard(l){
-  const cancelBtn = isMainAdmin() ? `<div class="btns"><button class="btn warn" onclick="cancelApprovedLeaveReq('${esc(l.LeaveID)}')">Cancel approved leave</button></div>` : '<p class="small muted">Cancellation is main-admin only.</p>';
-  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}${cancelBtn}</div>`;
+  const cancelBtn = isMainAdmin() ? `<button class="btn warn" onclick="cancelApprovedLeaveReq('${esc(l.LeaveID)}')">Cancel approved leave</button>` : '';
+  const amendmentLink = l.SupersedesLeaveID ? `<div class="small muted">Replaces approved request ${esc(l.SupersedesLeaveID)}</div>` : '';
+  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${amendmentLink}${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="amendApprovedLeaveReq('${esc(l.LeaveID)}')">Amend dates</button>${cancelBtn}</div></div>`;
 }
 function renderLeaveHistoryCard(l){
-  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}</div>`;
+  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}${l.SupersededByLeaveID?`<div class="small muted">Superseded by ${esc(l.SupersededByLeaveID)}</div>`:''}</div>`;
 }
 async function previewLeave(id){ const r=await adminCall('previewLeaveImpact',id); qs(`#preview-${id}`).innerHTML=renderImpact(r); }
 async function approveLeaveReq(id){ const reason=(await promptModal('Override/admin note if needed. Leave blank if not needed.',''))||''; const r=await adminCall('approveLeave',id,reason); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
 async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rejection?',''))||''; const r=await adminCall('rejectLeave',id,note); toast(r.message); auditLoaded=false; await refreshLeaveApprovalData(); }
+async function amendApprovedLeaveReq(id){
+  const old=(state.adminLeaveRequests||[]).find(x=>String(x.LeaveID)===String(id));
+  if(!old || old.Status!=='Approved'){toast('Refresh leave data before amending.');return;}
+  const start=await promptModal('Revised leave START date (YYYY-MM-DD)',old.StartDate||'');
+  if(start===null)return;
+  const end=await promptModal('Revised leave END date (YYYY-MM-DD)',old.EndDate||'');
+  if(end===null)return;
+  const reason=await promptModal('Reason for amending this approved leave (required)','Dates revised by consultant');
+  if(reason===null)return;
+  const s=String(start).trim(),e=String(end).trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||!/^\d{4}-\d{2}-\d{2}$/.test(e)||!String(reason).trim()){
+    await alertModal('Enter valid YYYY-MM-DD dates and a reason.');return;
+  }
+  if(!(await confirmModal('Supersede the approved leave '+old.StartDate+' to '+old.EndDate+' with '+s+' to '+e+'? Only future rota weeks will be recalculated.')))return;
+  const result=await adminCall('amendApprovedLeave',id,s,e,String(reason).trim());
+  toast(result.message);markRotaStale();adminDataLoaded=false;auditLoaded=false;
+  await refreshLeaveApprovalData();
+}
 async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?',''))||''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
 function renderImpact(r){
   const cls = r.level==='Conflict'?'bad':r.level==='Warning'?'warn':r.level==='Safe'?'ok':'blue';

@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=3.10.0">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=3.10.0">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=3.10.0">
+  <link rel="manifest" href="manifest.webmanifest?v=3.11.0">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=3.11.0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=3.11.0">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -323,7 +323,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=3.10.0',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=3.11.0',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });

@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#01163a">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.webmanifest?v=3.7.0">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=3.7.0">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=3.7.0">
+  <link rel="manifest" href="manifest.webmanifest?v=3.10.0">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=3.10.0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=3.10.0">
   <style>
     :root{
       --bg:#f3f5f9; --bg-alt:#eef1f6; --card:#ffffff; --ink:#101828; --muted:#64748b; --line:#e3e7ee;
@@ -263,7 +263,7 @@ function safeSessionRemove(key){ try { if(window.sessionStorage) sessionStorage.
 function safeLocalGet(key){ try { return window.localStorage ? (localStorage.getItem(key) || '') : ''; } catch(e){ return ''; } }
 function safeLocalSet(key,value){ try { if(window.localStorage) localStorage.setItem(key,value); } catch(e){} }
 function safeLocalRemove(key){ try { if(window.localStorage) localStorage.removeItem(key); } catch(e){} }
-const STARTUP_CACHE_KEY = 'rotaStartupPayload_v3_8_rc19';
+const STARTUP_CACHE_KEY = 'rotaStartupPayload_v3_10_rc21';
 const ROTA_FILTER_CACHE_KEY = 'rotaTeamFilter_v2_5';
 rotaTeamFilter = safeLocalGet(ROTA_FILTER_CACHE_KEY) || 'AUTO';
 let startupRefreshing = false;
@@ -323,7 +323,7 @@ window.addEventListener('offline',updateConnectionBadge);
 window.addEventListener('error',e=>{ if(e && e.message) console.error('Page error:',e.message); });
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js?v=3.7.0',{updateViaCache:'none'}).then(reg=>{
+    navigator.serviceWorker.register('sw.js?v=3.10.0',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
     }).catch(err=>console.warn('App update service unavailable:',err));
   });
@@ -884,7 +884,7 @@ function renderRota(){
   const summary = state.latestRota && state.latestRota.summary;
   const exportBox = state.latestExport ? renderExportReadyBox(state.latestExport) : '';
   const filterBar = allWeeks.length ? `<div class="card"><label>Rota view</label><select onchange="onRotaTeamFilterChange(this)">${rotaTeamFilterOptions()}</select><p class="small muted">For multiple teams, the default view shows all teams for the current week. Choose one team to browse all eight weeks quickly.</p></div>` : '';
-  const needsBackendUpgrade=(state.teams||[]).some(t=>t.TeamType==='SubTeam') && Number((state.app||{}).subTeamFeatureVersion||0)<3;
+  const needsBackendUpgrade=(state.teams||[]).some(t=>t.TeamType==='SubTeam') && Number((state.app||{}).subTeamFeatureVersion||0)<9;
   const backendNotice=needsBackendUpgrade ? '<div class="viewNotice dangerText">This screen is connected to an older rota backend, or is showing cached data. Update and deploy the matching Code.gs, then refresh. Sub-team changes cannot be verified until the backend is updated.</div>' : '';
   const sync = startupRefreshing ? `<div class="syncNote"><span class="syncDot"></span>Updating the live rota in the background…</div>` : '';
   const notice = allWeeks.length && isWindow ? `<div class="viewNotice">${esc(summary || 'Showing current week and upcoming weeks. Use View Full 52-Week Rota if you need the complete rota.')} ${sync}</div>` : (sync ? `<div class="viewNotice">${sync}</div>` : '');
@@ -1269,7 +1269,7 @@ async function saveAdminUserSettings(id){
 }
 
 function renderTeamsList(){
-  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}<div class="small muted">${t.TeamType==='SubTeam'?`Sub-teams: ${esc(String(t.SubTeamConfig||'').replace(',', ' / '))}${t.SubTeamUntil?` · Deactivates ${esc(t.SubTeamUntil)}`:''}`:'Standard team'}</div></td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button><button class="btn secondary" onclick="openExistingSubTeamEditor('${esc(t.TeamID)}')">${t.TeamType==='SubTeam'?'Edit / deactivate sub-teams':'Add sub-teams'}</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
+  return state.teams.length ? `<div class="scroll adminTable"><table><tr><th>Order</th><th>Team</th><th>Color</th><th>Active</th><th>Action</th></tr>${state.teams.map((t,idx)=>`<tr><td data-label="Order"><input type="number" id="teamOrder-${esc(t.TeamID)}" min="0" step="1" value="${esc(t.DisplayOrder || ((idx+1)*10))}" style="min-width:82px"></td><td data-label="Team">${teamBadge({TeamName:t.TeamName,ColorHex:cleanColor(t.ColorHex,'#0f172a')})}<div class="small muted">${t.TeamType==='SubTeam'?`Sub-teams: ${esc(String(t.SubTeamConfig||'').replace(',', ' / '))}${t.SubTeamUntil?` · Single team from ${esc(t.SubTeamUntil)}`:''}${t.SubTeamResumeFrom?` · Reactivates ${esc(t.SubTeamResumeFrom)}`:''}`:'Standard team'}</div></td><td data-label="Color"><input type="color" id="teamColor-${esc(t.TeamID)}" value="${esc(cleanColor(t.ColorHex,'#0f172a'))}"></td><td data-label="Active">${esc(t.Active)}</td><td data-label="Action"><button class="btn secondary" onclick="updateTeamColor('${esc(t.TeamID)}')">Save team</button><button class="btn secondary" onclick="openExistingSubTeamEditor('${esc(t.TeamID)}')">${t.TeamType==='SubTeam'?'Edit / deactivate / reactivate':'Add sub-teams'}</button></td></tr>`).join('')}</table></div><p class="small muted">Tip: use gaps like 10, 20, 30 so you can insert a new team later without renumbering all teams.</p>` : '<p class="muted">No teams yet.</p>';
 }
 
 
@@ -1434,12 +1434,15 @@ function openExistingSubTeamEditor(id){
     <div id="existingSubFields"><div class="row"><div><label>Sub-team 1 name</label><input id="existingSubName1" value="${esc(names[0]||'')}" placeholder="e.g. TCU" maxlength="60" oninput="updateExistingCoveragePriority_()"></div><div><label>Sub-team 2 name</label><input id="existingSubName2" value="${esc(names[1]||'')}" placeholder="e.g. EMCU" maxlength="60" oninput="updateExistingCoveragePriority_()"></div></div>
     <label>When only one consultant is available</label><select id="existingSubPriority"></select>
     <label>Deactivate sub-teams from a specific Sunday (optional)</label><input id="existingSubUntil" type="date" value="${esc(team.SubTeamUntil||'')}">
-    <p class="small muted">From this date the original parent team returns to one inpatient Team assignment, OPD and Off-duty. The sub-team names and historical assignments remain stored. Saving does not change the published rota; create a selected-team draft to apply it.</p>
+    <p class="small muted">From the deactivation Sunday the parent team returns to one inpatient Team assignment. Existing sub-team names and history remain stored.</p>
+    <label>Reactivate sub-teams from a Sunday (optional)</label><input id="existingSubResume" type="date" value="${esc(team.SubTeamResumeFrom||'')}" onchange="syncSubResumeWeekFromDate_()">
+    <label>Or select a rota week number</label><input id="existingSubResumeWeek" type="number" min="1" max="${esc((state.latestVersion||{}).Weeks||52)}" placeholder="e.g. 20" oninput="syncSubResumeDateFromWeek_()">
+    <p class="small muted">Choose a Sunday after deactivation. From that week the same two inpatient sub-teams resume. Earlier published weeks remain unchanged. Save and create a selected-team draft, then review and publish it.</p>
     <label>Sub-team activation</label><select id="existingActivationMode" onchange="updateExistingActivationMode_()"><option value="next">Next rota period (default)</option><option value="current">Activate during the current published period</option></select>
     <div id="existingActivationDetails" class="hide"><label>First Sunday of sub-team coverage</label><input id="existingSubStart" type="date" value="${esc(effectiveDate)}"><p class="small muted">Earlier weeks are preserved. Regeneration creates a draft for this team only; nothing goes live until you publish it.</p>
       <div class="row"><div><label>Initial ${esc(names[0]||'Sub-team 1')} consultant (optional)</label><select id="existingSeed1">${memberOptions}</select></div><div><label>Initial ${esc(names[1]||'Sub-team 2')} consultant (optional)</label><select id="existingSeed2">${memberOptions}</select></div></div>
     </div></div>
-    <p class="small muted">Saved activation: ${team.SubTeamFrom?esc(team.SubTeamFrom):'next rota period by default'}. ${team.SubTeamUntil?`Saved deactivation: ${esc(team.SubTeamUntil)}.`:''} Earlier published weeks are protected. Historical sub-team names remain stored.</p>
+    <p class="small muted">Saved activation: ${team.SubTeamFrom?esc(team.SubTeamFrom):'next rota period by default'}. ${team.SubTeamUntil?`Saved deactivation: ${esc(team.SubTeamUntil)}.`:''} ${team.SubTeamResumeFrom?`Saved reactivation: ${esc(team.SubTeamResumeFrom)}.`:''} Earlier published weeks are protected. Historical sub-team names remain stored.</p>
     <div class="btns"><button class="btn ok" onclick="saveExistingSubTeamSettings(false)">Save team structure</button><button class="btn blue" onclick="saveExistingSubTeamSettings(true)">Save &amp; Create Team Draft</button><button class="btn secondary" onclick="cancelExistingSubTeamSettings()">Cancel</button></div>`;
   const latest=state.latestVersion;
   const inCurrent=!!(latest && team.SubTeamFrom && String(team.SubTeamFrom).slice(0,10)<=String(latest.EndDate).slice(0,10));
@@ -1447,6 +1450,7 @@ function openExistingSubTeamEditor(id){
   updateExistingActivationMode_();
   updateExistingCoveragePriority_(team.OneConsultantPriority||'');
   updateExistingSubTeamMode_();
+  syncSubResumeWeekFromDate_();
   panel.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function nextSundayDateISO_(){
@@ -1461,6 +1465,26 @@ function thisSundayDateISO_(){
 }
 function isSundayISO_(s){
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(s+'T12:00:00').getDay()===0;
+}
+// Rota week number is a convenience for the currently published period.
+// The backend persists only the corresponding Sunday; no week-number drift
+// occurs when a subsequent 52-week period is generated.
+function syncSubResumeDateFromWeek_(){
+  const n=Number(qs('#existingSubResumeWeek')?.value||0), latest=state.latestVersion;
+  const dateField=qs('#existingSubResume');
+  if(!dateField || !latest)return;
+  if(!Number.isInteger(n)||n<1||n>Number(latest.Weeks||52)){
+    dateField.value='';return;
+  }
+  dateField.value=weekStartISO_(String(latest.StartDate).slice(0,10),n);
+}
+function syncSubResumeWeekFromDate_(){
+  const field=qs('#existingSubResumeWeek'),date=qs('#existingSubResume')?.value||'',latest=state.latestVersion;
+  if(!field)return;
+  field.value='';
+  if(!latest||!date||!isSundayISO_(date))return;
+  const n=Math.round((Date.parse(date+'T12:00:00Z')-Date.parse(String(latest.StartDate).slice(0,10)+'T12:00:00Z'))/(7*86400000))+1;
+  if(n>=1&&n<=Number(latest.Weeks||52))field.value=String(n);
 }
 function updateExistingActivationMode_(){
   qs('#existingActivationDetails')?.classList.toggle('hide',qs('#existingActivationMode')?.value!=='current');
@@ -1492,6 +1516,7 @@ async function saveExistingSubTeamSettings(makeDraft=false){
   const live=mode==='SubTeam' && qs('#existingActivationMode')?.value==='current';
   const activation=live ? qs('#existingSubStart')?.value : '';
   const stopDate=mode==='SubTeam'?(qs('#existingSubUntil')?.value||''):'';
+  const resumeDate=mode==='SubTeam'?(qs('#existingSubResume')?.value||''):'';
   const latest=state.latestVersion;
   if(live && (!isSundayISO_(activation) || activation < thisSundayDateISO_()) && String(t.SubTeamFrom||'')!==activation){
     toast('Choose this Sunday or a future Sunday for activation.');return;
@@ -1504,11 +1529,30 @@ async function saveExistingSubTeamSettings(makeDraft=false){
       toast('Deactivation must be after activation.');return;
     }
   }
-  const deactivationDraft=!!(makeDraft && stopDate);
-  if(makeDraft && !deactivationDraft && (!live || mode!=='SubTeam')){
-    toast('Choose current-period activation or a sub-team deactivation date to create a team draft.');return;
+  if(resumeDate){
+    if(!isSundayISO_(resumeDate) || (resumeDate<thisSundayDateISO_() && resumeDate!==String(t.SubTeamResumeFrom||'').slice(0,10))){
+      toast('Choose this Sunday or a future Sunday for reactivation.');return;
+    }
+    if(!stopDate || resumeDate<=stopDate){toast('Reactivation must be after the deactivation Sunday.');return;}
   }
-  const effective=deactivationDraft?stopDate:activation;
+  const priorStop=String(t.SubTeamUntil||'').slice(0,10),priorResume=String(t.SubTeamResumeFrom||'').slice(0,10);
+  const stopChanged=stopDate!==priorStop, resumeChanged=resumeDate!==priorResume;
+  // When several transitions change together, regenerate from the EARLIEST
+  // changed boundary, not just the final resume date.
+  const transitions=[];
+  if(stopChanged && stopDate)transitions.push(stopDate);
+  if(resumeChanged && resumeDate)transitions.push(resumeDate);
+  if(live && activation && String(t.SubTeamFrom||'').slice(0,10)!==activation)transitions.push(activation);
+  const fallback=resumeDate||stopDate||(live?activation:'');
+  const effective=transitions.length?transitions.sort()[0]:fallback;
+  const deactivationDraft=!!(makeDraft && effective===stopDate && stopDate);
+  const resumptionDraft=!!(makeDraft && effective===resumeDate && resumeDate);
+  if(makeDraft && (!effective || mode!=='SubTeam')){
+    toast('Choose current-period activation, a deactivation Sunday, or a reactivation Sunday to create a team draft.');return;
+  }
+  if(makeDraft && effective<thisSundayDateISO_()){
+    toast('Completed/past rota weeks are protected. Choose the current or a future Sunday.');return;
+  }
   if(makeDraft && (!latest || effective<String(latest.StartDate).slice(0,10) || effective>String(latest.EndDate).slice(0,10))){
     toast('For a current-period draft, choose a Sunday within the published rota period.');return;
   }
@@ -1516,13 +1560,13 @@ async function saveExistingSubTeamSettings(makeDraft=false){
   if(makeDraft && !deactivationDraft && first && first===second){toast('Sub-team consultants must be different.');return;}
   const message=makeDraft
     ? `Save team settings and create an unpublished draft for ${t.TeamName} from ${effective}? Earlier weeks and other teams will be preserved.`
-    : `Save ${t.TeamName} settings? ${stopDate?'Sub-teams will be disabled from '+stopDate+'. ':''}The published rota remains unchanged until an amendment is published.`;
+    : `Save ${t.TeamName} settings? ${stopDate&&stopChanged?'Sub-teams will be disabled from '+stopDate+'. ':''}${resumeDate?'Sub-teams will reactivate from '+resumeDate+'. ':''}The published rota remains unchanged until an amendment is published.`;
   if(!(await confirmModal(message,'Confirm')))return;
   const buttons=panel?Array.from(panel.querySelectorAll('button')):[];
   buttons.forEach(b=>b.disabled=true);
   try{
     const data={TeamID:id,TeamName:t.TeamName,DisplayOrder:t.DisplayOrder,ColorHex:t.ColorHex,Active:t.Active,
-      TeamType:mode,SubTeamConfig:config,SubTeamUntil:stopDate,
+      TeamType:mode,SubTeamConfig:config,SubTeamUntil:stopDate,SubTeamResumeFrom:resumeDate,
       OneConsultantPriority:mode==='SubTeam'?(qs('#existingSubPriority')?.value||''):'',
       ...(live?{SubTeamFrom:activation}:{})};
     const r=await adminCall('saveTeam',data);
@@ -1593,7 +1637,7 @@ function renderManualGrid(){
       const parentStart=(selectedRotaTeamId()==='ALL' || !state.latestVersion) ? (qs('#rotaStart')?.value||'') : String(state.latestVersion.StartDate).slice(0,10);
       const wd=new Date(parentStart+'T12:00:00Z');wd.setUTCDate(wd.getUTCDate()+7*(w-1));
       const wdISO=wd.toISOString().slice(0,10);
-      const subTeamActive=t.TeamType==='SubTeam' && (!t.SubTeamFrom || wdISO>=String(t.SubTeamFrom).slice(0,10));
+      const subTeamActive=t.TeamType==='SubTeam' && (!t.SubTeamFrom || wdISO>=String(t.SubTeamFrom).slice(0,10)) && (!t.SubTeamUntil || wdISO<String(t.SubTeamUntil).slice(0,10) || (!!t.SubTeamResumeFrom && wdISO>=String(t.SubTeamResumeFrom).slice(0,10)));
       const subNames=String(t.SubTeamConfig||'').split(',').map(s=>s.trim());
       html += `<div class="manual-team">${teamBadge({TeamName:t.TeamName,ColorHex:t.ColorHex})}<div class="split">${subTeamActive
         ? `<div><label>${esc(subNames[0]||'Sub-team 1')} (inpatient)</label><select class="manualSelect" data-week="${w}" data-team="${esc(t.TeamID)}" data-type="sub1">${consultantOptionsForSubTeam_(t.TeamID,0,wdISO)}</select></div><div><label>${esc(subNames[1]||'Sub-team 2')} (inpatient)</label><select class="manualSelect" data-week="${w}" data-team="${esc(t.TeamID)}" data-type="sub2">${consultantOptionsForSubTeam_(t.TeamID,1,wdISO)}</select></div>`
@@ -1771,8 +1815,9 @@ function renderEditorWeek(week){
     const configuredNames=configured && configured.TeamType==='SubTeam'?String(configured.SubTeamConfig||'').split(',').map(n=>n.trim()).filter(Boolean):[];
     const effective=String(t.subTeamEffectiveFrom||(configured&&configured.SubTeamFrom)||'').slice(0,10);
     const until=String(t.subTeamEffectiveUntil||(configured&&configured.SubTeamUntil)||'').slice(0,10);
+    const resume=String(t.subTeamResumeFrom||(configured&&configured.SubTeamResumeFrom)||'').slice(0,10);
     const weekStart=weekStartISO_(state.latestVersion&&state.latestVersion.StartDate,Number(week.weekNo));
-    const disabledFrom=!!until && weekStart>=until;
+    const disabledFrom=!!until && weekStart>=until && (!resume||weekStart<resume);
     const activeSubTeam=configuredNames.length===2 && (!effective||weekStart>=effective) && !disabledFrom;
     if(activeSubTeam && !(t.subTeamNames||[]).length) t.subTeamNames=configuredNames;
     if(disabledFrom)t.subTeamNames=[];
@@ -1869,7 +1914,7 @@ async function publishManualEdit(){
 function renderSettings(){
   if(!adminUnlocked){ qs('#tab-settings').innerHTML = ''; return; }
   if(!isMainAdmin()){ qs('#tab-settings').innerHTML = '<div class="card"><h2>Setup</h2><p class="sub">Setup is limited to the main admin.</p></div>'; return; }
-  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>My Admin Login</h2><p class="sub">Signed in as <b>${esc((state.adminSession||{}).username||'admin')}</b>. Changing the PIN signs out existing sessions.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Standard teams cover one inpatient consultant; with four available consultants, the target is one inpatient, two OPD and one Off-duty whenever Off-duty eligibility and cooldown permit it. Sub-team parent teams cover both configured inpatient services independently, until their optional deactivation Sunday.</li><li>For sub-team teams: cover both inpatient sub-teams first, use multi-week fairness to decide if Off-duty should be assigned or skipped, then assign every remaining available consultant to OPD. Approved leave reduces OPD staffing but does not automatically cancel OPD; coverage shortages are flagged as critical.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional. A consultant needs at least a three-week gap between Off-duty weeks (for example, Week 1 then Week 4 or later); Off-duty → inpatient → Off-duty is not permitted.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is optional and may also be skipped with eligible consultants if that improves inpatient/Off-duty sequencing; any extra available consultants remain in OPD.</li><li>Sub-team workload fairness is based on each consultant's eligible weeks, not the total weeks in the rota. A new consultant or a returning consultant is not forced to catch up on missed historical shifts.</li><li>Rolling inpatient fairness also checks the last eight eligible rota weeks, preventing a consultant from repeatedly carrying the inpatient workload despite acceptable annual totals. Consultants who cannot take Off-duty have a modestly lower inpatient target when staffing allows; four-person teams with two weekly inpatient posts still require an average 50% inpatient share each if consecutive weeks are avoided.</li><li>When returning from approved leave, a regular consultant is prioritized for inpatient service rather than Off-duty. This is an automatic scheduling preference, not a restriction on administrator-selected manual coverage.</li><li>Staffing changes create a selected-team Draft amendment from the next unstarted week; it must be reviewed and explicitly published. Leave approvals retain their existing automatic amendment workflow.</li><li>Sub-team inpatient assignments (either service) avoid consecutive inpatient weeks and minimize inpatient returns after only one OPD week whenever feasible. If staffing or an explicit manual selection makes a repeat unavoidable, a warning is recorded.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactivity and other staffing changes create a reviewable draft from the next unstarted week; official assignments change only when Main Admin publishes that draft.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>Consultant-specific sub-team restrictions apply during automatic and manual inpatient assignments. Off-duty equity accounts for historical eligibility, and Can Off-duty is enforced for every consultant.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require a valid temporary session token created by username + PIN sign-in. The PIN is not stored in the browser after login.</li><li>The live RotaAssignments sheet keeps the current official amendment and active drafts. Archived amendments are stored separately by rota period to control long-term sheet size.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
+  qs('#tab-settings').innerHTML = `<div class="card"><h2>Setup</h2><p class="sub">Admin-only maintenance. Use repair only after installing an updated version or if a column/sheet is missing. It does not erase existing rota data.</p><div class="btns"><button class="btn secondary" onclick="setup()">Safe Repair / Add Missing Columns</button><button class="btn secondary" onclick="load()">Refresh</button></div></div><div class="card"><h2>My Admin Login</h2><p class="sub">Signed in as <b>${esc((state.adminSession||{}).username||'admin')}</b>. Changing the PIN signs out existing sessions.</p><label>New admin PIN</label><input id="newAdminPin" type="password" inputmode="numeric" placeholder="4 to 8 digits"><div class="btns"><button class="btn warn" onclick="changeAdminPin()">Change Admin PIN</button></div></div><div class="card"><h2>Current Rules</h2><ul><li>Weekly rota runs Sunday to Saturday.</li><li>Standard teams cover one inpatient consultant; with four available consultants, the target is one inpatient, two OPD and one Off-duty whenever Off-duty eligibility and cooldown permit it. Sub-team parent teams cover both configured inpatient services independently, with a scheduled deactivation and optional subsequent reactivation Sunday.</li><li>For sub-team teams: cover both inpatient sub-teams first, use multi-week fairness to decide if Off-duty should be assigned or skipped, then assign every remaining available consultant to OPD. Approved leave reduces OPD staffing but does not automatically cancel OPD; coverage shortages are flagged as critical.</li><li>OPD is flexible and can be covered by 1–9 consultants per team whenever staffing allows.</li><li>Off-duty is optional. A consultant needs at least a three-week gap between Off-duty weeks (for example, Week 1 then Week 4 or later); Off-duty → inpatient → Off-duty is not permitted.</li><li>When a consultant is eligible for Off-duty, the engine protects the normal three-week Off-duty interval and does not bring the same consultant back to Off-duty too early.</li><li>Off-duty is optional and may also be skipped with eligible consultants if that improves inpatient/Off-duty sequencing; any extra available consultants remain in OPD.</li><li>Sub-team workload fairness is based on each consultant's eligible weeks, not the total weeks in the rota. A new consultant or a returning consultant is not forced to catch up on missed historical shifts.</li><li>Rolling inpatient fairness also checks the last eight eligible rota weeks, preventing a consultant from repeatedly carrying the inpatient workload despite acceptable annual totals. Consultants who cannot take Off-duty have a modestly lower inpatient target when staffing allows; four-person teams with two weekly inpatient posts still require an average 50% inpatient share each if consecutive weeks are avoided.</li><li>When returning from approved leave, a regular consultant is prioritized for inpatient service rather than Off-duty. This is an automatic scheduling preference, not a restriction on administrator-selected manual coverage.</li><li>Staffing changes create a selected-team Draft amendment from the next unstarted week; it must be reviewed and explicitly published. Leave approvals retain their existing automatic amendment workflow.</li><li>Sub-team inpatient assignments (either service) avoid consecutive inpatient weeks and minimize inpatient returns after only one OPD week whenever feasible. If staffing or an explicit manual selection makes a repeat unavoidable, a warning is recorded.</li><li>Users can check whether their leave dates overlap with another leave request in the same team; this does not simulate the rota.</li><li>Leave only changes rota after admin approval.</li><li>Inactivity and other staffing changes create a reviewable draft from the next unstarted week; official assignments change only when Main Admin publishes that draft.</li><li>Team and consultant colors are chosen by admin and carried into the mobile rota and Word export.</li><li>Manual Edit can publish a corrected week, then recalculate subsequent weeks. Same-team selected consultants influence future rotation; external typed cover names are display-only.</li><li>Consultant-specific sub-team restrictions apply during automatic and manual inpatient assignments. Off-duty equity accounts for historical eligibility, and Can Off-duty is enforced for every consultant.</li><li>Wrong official versions should be voided/restored, not hard-deleted.</li><li>Admin Login is required before Setup, Leave Approval, and Manual Edit appear.</li><li>Admin pages and admin server actions require a valid temporary session token created by username + PIN sign-in. The PIN is not stored in the browser after login.</li><li>The live RotaAssignments sheet keeps the current official amendment and active drafts. Archived amendments are stored separately by rota period to control long-term sheet size.</li><li>Team sub-admins can approve/reject leave for their assigned team only; all other admin tools remain main-admin only.</li></ul></div>`;
 }
 async function changeAdminPin(){
   const pin = (qs('#newAdminPin') && qs('#newAdminPin').value || '').trim();

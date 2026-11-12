@@ -8,7 +8,7 @@
 const APP = {
   timezone: 'Asia/Riyadh',
   title: 'CTU ROTA',
-  version: '3.12.0-rc1'
+  version: '3.11.0-rc22'
 };
 
 const SHEETS = {
@@ -215,7 +215,7 @@ function setupDatabase() {
   return { ok: true, message: 'Database sheets are ready.', sheets: Object.values(SHEETS), url: ss.getUrl() };
 }
 
-const PUBLIC_STARTUP_CACHE_BASE_ = 'publicStartupPayload_v3_12';
+const PUBLIC_STARTUP_CACHE_BASE_ = 'publicStartupPayload_v3_10_reactivate';
 const PUBLIC_STARTUP_CACHE_SECONDS_ = 21600;
 const PUBLIC_STARTUP_CACHE_CHUNK_SIZE_ = 78000;
 
@@ -1892,12 +1892,6 @@ function deleteDraftRota(adminPin, versionId) {
 
 function resetRotaData(adminPin, confirmText) {
   requireAdminPin_(adminPin);
-  // Production guard: deleting every rota period/version/assignment and trashing the
-  // archive files must be explicitly enabled per deployment (e.g. staging only) via
-  // Apps Script -> Project Settings -> Script Properties: ALLOW_ROTA_RESET = YES.
-  if (String(PropertiesService.getScriptProperties().getProperty('ALLOW_ROTA_RESET') || '').trim().toUpperCase() !== 'YES') {
-    throw new Error('Clear Generated Rota is disabled on this deployment to protect rota history. Nothing was changed.');
-  }
   setupDatabase();
   if (String(confirmText || '').trim() !== 'RESET ROTA') throw new Error('Type RESET ROTA to confirm.');
   const lock = LockService.getDocumentLock();
@@ -2583,11 +2577,6 @@ function returnedFromLeaveThisWeek_(ctx, consultant) {
   return false;
 }
 
-// Cost of one consultant repeating the same inpatient service (TCU/EMCU) as
-// their previous inpatient turn. Chosen with apps-script/tests/scheduling-sim.js:
-// 120 keeps alternation dominant in normal weeks while letting a clearly
-// overdue consultant be selected; values >=150 behave like strict alternation.
-var SUBTEAM_ALTERNATION_WEIGHT_ = 120;
 function buildSubTeamWeekRows_(ctx) {
   const roles = subTeamNames_(ctx.team);
   if (roles.length !== 2) throw new Error('Sub-team configuration requires exactly two services.');
@@ -2743,16 +2732,12 @@ function buildSubTeamWeekRows_(ctx) {
         // Hard priority: avoid avoidable consecutive inpatient assignments,
         // then give returning staff inpatient preference.
         // Sequence, rolling equity, and long-term equity jointly select the rest.
-        // Protect inpatient spacing and return-from-leave first. TCU<->EMCU
-        // alternation is then a heavily weighted preference inside the combined
-        // cost (v3.12): it decides which service each chosen consultant takes
-        // and usually who is chosen, but a clearly overdue consultant is no
-        // longer passed over only to preserve alternation. Ties still prefer
-        // alternation.
-        const alternationCost = serviceRepeat*SUBTEAM_ALTERNATION_WEIGHT_;
-        const score = [repeated, returnMissed,
-          sequenceCost+fairnessCost+recentFairness+offEquityCost+alternationCost,
-          serviceRepeat, recentFairness, sequenceCost, fairnessCost, offEquityCost];
+        // Protect inpatient spacing and return-from-leave first. Among
+        // equally safe choices, enforce per-consultant TCU<->EMCU alternation
+        // before optimizing workload totals. Without this explicit priority,
+        // repeated TCU/EMCU assignments can follow a Manual Edit indefinitely.
+        const score = [repeated, returnMissed, serviceRepeat,
+          sequenceCost+fairnessCost+recentFairness+offEquityCost, recentFairness, sequenceCost, fairnessCost, offEquityCost];
         options.push({ c1:c1, c2:c2, off:off, score:score,
           key:id1+'|'+id2+'|'+(off?String(off.ConsultantID):'~') });
       });
@@ -3937,18 +3922,10 @@ function getOrCreatePeriodArchive_(periodId) {
   let archiveId = String(period.ArchiveSpreadsheetID || '').trim();
   let archive;
   if (archiveId) {
-    // Never replace an existing archive link: earlier archived amendments of this
-    // period live only in that file. A transient Drive error or a permission change
-    // must stop the operation (callers roll back) instead of silently re-linking.
     try { archive = SpreadsheetApp.openById(archiveId); }
-    catch (err) {
-      throw new Error('The assignment archive spreadsheet for rota period ' + (period.PeriodName || period.PeriodID) +
-        ' could not be opened (ID ' + archiveId + '). No changes were kept. Check that the script owner still has Drive access to that file, then retry.');
-    }
-    return archive;
+    catch (_) { archiveId = ''; }
   }
-  // No archive exists yet for this period: create it once and record its ID.
-  {
+  if (!archiveId) {
     archive = SpreadsheetApp.create(`${APP.title} Archive - ${period.PeriodName || period.PeriodID}`.slice(0, 95));
     archiveId = archive.getId();
     try {
@@ -4027,16 +4004,8 @@ function restoreVersionAssignmentsToLive_(versionId) {
   const version = readObjects_(SHEETS.RotaVersions).find(v => String(v.VersionID) === String(versionId));
   if (!version) throw new Error('Rota version was not found for restoration.');
   const existing = readObjects_(SHEETS.RotaAssignments).filter(r => String(r.VersionID) === String(versionId));
-  let rows = null;
-  if (existing.length) {
-    // An interrupted archive move can leave only part of a version in the live sheet
-    // while the archive copy (written first) is complete. Prefer the complete copy.
-    const lookup = Object.assign({}, version, { ArchiveSheetName: version.ArchiveSheetName || assignmentArchiveSheetName_(version) });
-    try { rows = readArchivedAssignments_(lookup); } catch (_) { return existing; }
-    if (rows.length <= existing.length) return existing;
-    deleteRowsWhere_(SHEETS.RotaAssignments, r => String(r.VersionID) === String(versionId));
-  }
-  if (!rows) rows = readArchivedAssignments_(version);
+  if (existing.length) return existing;
+  const rows = readArchivedAssignments_(version);
   if (!rows.length) throw new Error('This archived amendment has no stored assignments and cannot be restored.');
   appendRows_(SHEETS.RotaAssignments, rows.map(r => Object.assign({}, r, { VersionID: version.VersionID, PeriodID: version.PeriodID })));
   updateRow_(SHEETS.RotaVersions, 'VersionID', version.VersionID, { AssignmentStorage: 'Live', AssignmentCount: rows.length });
@@ -4111,10 +4080,8 @@ function migrateAssignmentStorage_() {
     if (count) updateRow_(SHEETS.RotaVersions, 'VersionID', v.VersionID, { AssignmentStorage: 'Live', AssignmentCount: count });
   });
 
-  // Remove only the rows that were just archived; kept rows are never rewritten.
-  const archivedIds = {};
-  archivePlans.forEach(p => { archivedIds[String(p.version.VersionID)] = true; });
-  if (archivePlans.length) deleteRowsWhere_(SHEETS.RotaAssignments, r => !!archivedIds[String(r.VersionID || '')]);
+  const keptRows = assignments.filter(r => keep[String(r.VersionID || '')]);
+  if (archivePlans.length) rewriteSheetObjects_(SHEETS.RotaAssignments, keptRows);
   const archivedRows = archivePlans.reduce((n, p) => n + p.rows.length, 0);
   updateSetting_('AssignmentArchiveMigrationV18', 'Done');
   return { status: archivePlans.length ? 'Migrated' : 'Done', archivedVersions: archivePlans.length, archivedRows: archivedRows, summary: assignmentStorageSummary_() };
@@ -4172,7 +4139,6 @@ function getRotaVersions_(knownPeriods) {
 }
 
 function deleteAllDataRows_(sheetName) {
-  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const last = sh.getLastRow();
   if (last <= 1) return;
@@ -4186,13 +4152,49 @@ function deleteAllDataRows_(sheetName) {
 }
 
 
+function rewriteSheetObjects_(sheetName, objects) {
+  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
+  const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const lastRow = sh.getLastRow();
+  if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  if (objects && objects.length) {
+    const values = objects.map(obj => headers.map(h => obj[h] === undefined ? '' : obj[h]));
+    sh.getRange(2, 1, values.length, headers.length).setValues(values);
+    perfSheetWrite_(values.length);
+  }
+  SpreadsheetApp.flush();
+  if (sheetName === SHEETS.RotaAssignments) clearAssignmentStorageSummaryCache_();
+  if (sheetAffectsPublicStartup_(sheetName)) invalidatePublicStartupCache_();
+}
+
 function removeVersionAssignmentsFromLive_(versionId) {
-  // Deletes only this version's rows (bottom-up, in contiguous blocks). Rows of other
-  // versions are never cleared or rewritten, so an interrupted call can leave some of
-  // this (already archived) version behind, but can never empty the live sheet.
+  const all = readObjects_(SHEETS.RotaAssignments);
   const id = String(versionId || '');
-  if (!id) return 0;
-  return deleteRowsWhere_(SHEETS.RotaAssignments, r => String(r.VersionID || '') === id);
+  const matching = [];
+  all.forEach((row, idx) => { if (String(row.VersionID || '') === id) matching.push(idx); });
+  if (!matching.length) return 0;
+  // appendRows_ writes complete versions together, so normally only one contiguous
+  // run needs removal. Preserve the original rewrite fallback for mixed historical rows.
+  const contiguous = matching[matching.length - 1] - matching[0] + 1 === matching.length;
+  const sh = ensureSheet_(SHEETS.RotaAssignments, HEADERS.RotaAssignments);
+  // An older Sheet with blank spacer rows cannot use index-based deletion.
+  // The rewrite fallback handles it without risking a wrong physical row.
+  if (contiguous && all.length === sh.getLastRow() - 1) {
+    const startRow = matching[0] + 2;
+    // Sheets requires one spare non-frozen row when removing all data rows.
+    if (sh.getMaxRows() <= matching.length + 1 && matching.length === all.length) {
+      sh.insertRowAfter(sh.getMaxRows());
+    }
+    sh.deleteRows(startRow, matching.length);
+    perfSheetWrite_(matching.length);
+    clearAssignmentStorageSummaryCache_();
+    invalidatePublicStartupCache_();
+  } else {
+    const keep = all.filter(r => String(r.VersionID || '') !== id);
+    rewriteSheetObjects_(SHEETS.RotaAssignments, keep);
+  }
+  return matching.length;
 }
 
 function restoreOfficialAfterRollback_(version) {
@@ -4202,7 +4204,6 @@ function restoreOfficialAfterRollback_(version) {
 }
 
 function deleteRowsWhere_(sheetName, predicate) {
-  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const values = sh.getDataRange().getValues();
   perfSheetRead_(values.length > 0 ? values.length - 1 : 0);

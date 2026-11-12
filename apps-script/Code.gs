@@ -8,7 +8,7 @@
 const APP = {
   timezone: 'Asia/Riyadh',
   title: 'CTU ROTA',
-  version: '3.2.0-rc13'
+  version: '3.11.0-rc22'
 };
 
 const SHEETS = {
@@ -29,7 +29,7 @@ const SHEETS = {
 const HEADERS = {
   Settings: ['Key', 'Value'],
   AdminUsers: ['UserID', 'Username', 'Name', 'PIN', 'PINHash', 'PINSalt', 'AuthVersion', 'Role', 'TeamID', 'Active', 'CreatedAt', 'UpdatedAt', 'LastLoginAt', 'Notes'],
-  Teams: ['TeamID', 'TeamName', 'ColorHex', 'DisplayOrder', 'Active', 'CreatedAt', 'UpdatedAt', 'TeamType', 'SubTeamConfig', 'SubTeamFrom', 'OneConsultantPriority'],
+  Teams: ['TeamID', 'TeamName', 'ColorHex', 'DisplayOrder', 'Active', 'CreatedAt', 'UpdatedAt', 'TeamType', 'SubTeamConfig', 'SubTeamFrom', 'OneConsultantPriority', 'SubTeamUntil', 'SubTeamResumeFrom'],
   Consultants: ['ConsultantID', 'Name', 'TeamID', 'CanOffDuty', 'ConsultantType', 'ColorHex', 'CurrentStatus', 'ActiveFrom', 'InactiveFrom', 'Notes', 'CreatedAt', 'UpdatedAt', 'SubTeamAssignment', 'SubTeamAssignmentFrom'],
   LeaveRequests: ['LeaveID', 'ConsultantID', 'TeamID', 'StartDate', 'EndDate', 'Status', 'SubmittedAt', 'UserNote', 'AdminDecisionDate', 'AdminNote', 'ImpactStatus', 'ImpactSummary', 'SupersedesLeaveID', 'SupersededByLeaveID'],
   RotaPeriods: ['PeriodID', 'PeriodName', 'Status', 'StartDate', 'EndDate', 'Weeks', 'CreatedAt', 'CreatedBy', 'ActivatedAt', 'ArchivedAt', 'ArchiveSpreadsheetID', 'ArchiveSpreadsheetURL', 'Notes'],
@@ -67,7 +67,36 @@ function doPost(e) {
   return handleApiRequest_(e);
 }
 
+// Per-request counters only; never persist or disclose PINs, tokens, names, or arguments.
+let API_PERF_CONTEXT_ = null;
+// Sheet objects and validated headers are memoized for ONE API invocation only.
+// Mutations are never cached across API calls or separate Apps Script executions.
+let REQUEST_SHEET_MEMO_ = null;
+let ADMIN_READ_MEMO_ = null;
+function withAdminReadMemo_(fn) {
+  const previous = ADMIN_READ_MEMO_;
+  ADMIN_READ_MEMO_ = Object.create(null);
+  try { return fn(); }
+  finally { ADMIN_READ_MEMO_ = previous; }
+}
+function perfSheetRead_(rowCount) {
+  if (!API_PERF_CONTEXT_) return;
+  API_PERF_CONTEXT_.sheetReads++;
+  API_PERF_CONTEXT_.rowsRead += Math.max(0, Number(rowCount || 0));
+}
+function perfSheetWrite_(rowCount) {
+  if (!API_PERF_CONTEXT_) return;
+  API_PERF_CONTEXT_.sheetWrites++;
+  API_PERF_CONTEXT_.rowsWritten += Math.max(0, Number(rowCount || 0));
+}
 function handleApiRequest_(e) {
+  const startedAt = Date.now();
+  let route = 'invalid';
+  let success = false;
+  const context = { sheetReads: 0, rowsRead: 0, sheetWrites: 0, rowsWritten: 0, schemaChecks: 0, rowFinds: 0, cacheInvalidations: 0 };
+  // Do not reuse a sheet reference between user requests or database copies.
+  REQUEST_SHEET_MEMO_ = Object.create(null);
+  API_PERF_CONTEXT_ = context;
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const fn = String(body.fn || '');
@@ -75,10 +104,22 @@ function handleApiRequest_(e) {
     if (!Object.prototype.hasOwnProperty.call(API_WHITELIST_, fn)) {
       throw new Error('Unknown API function: ' + fn);
     }
+    route = fn; // Server-defined allowlisted name only, never user input.
     const result = API_WHITELIST_[fn].apply(null, args);
+    success = true;
     return jsonOutput_({ ok: true, result: result });
   } catch (err) {
     return jsonOutput_({ ok: false, error: (err && err.message) || String(err) });
+  } finally {
+    // Accessible via Apps Script > Executions/Logs. No additional Sheets writes.
+    try { Logger.log(JSON.stringify({ event: 'rota_api_perf', version: APP.version,
+      operation: route, ok: success, durationMs: Date.now() - startedAt,
+      reads: context.sheetReads, readRows: context.rowsRead,
+      writes: context.sheetWrites, writtenRows: context.rowsWritten,
+      schemaChecks: context.schemaChecks, rowFinds: context.rowFinds,
+      cacheInvalidations: context.cacheInvalidations })); } catch (_) {}
+    API_PERF_CONTEXT_ = null;
+    REQUEST_SHEET_MEMO_ = null;
   }
 }
 
@@ -94,8 +135,8 @@ const API_WHITELIST_ = {
   getStartupPayload: getStartupPayload,
   loginAdmin: loginAdmin,
   logoutAdminSession: logoutAdminSession,
-  getAdminData: getAdminData,
   getAdminSession: getAdminSession,
+  getAdminData: getAdminData,
   getAdminLeaveData: getAdminLeaveData,
   getAssignmentStorageSummary: getAssignmentStorageSummary,
   getAuditLog: getAuditLog,
@@ -161,7 +202,7 @@ function renderHtmlFile_(name) {
 function setupDatabase() {
   const cache = CacheService.getScriptCache();
   // Versioned cache key: schema/auth changes must be checked after every release upgrade.
-  const cacheKey = 'dbReady_v3_2_leave_amend';
+  const cacheKey = 'dbReady_v3_10_reactivate';
   if (cache.get(cacheKey) === '1') {
     return { ok: true, message: 'Database sheets are ready.', sheets: Object.values(SHEETS), url: getDb_().getUrl() };
   }
@@ -170,11 +211,11 @@ function setupDatabase() {
   seedSettings_();
   ensureAdminAuthMigration_();
   ensureRotaPeriodMigration_();
-  cache.put(cacheKey, '1', 300);
+  cache.put(cacheKey, '1', 3600);
   return { ok: true, message: 'Database sheets are ready.', sheets: Object.values(SHEETS), url: ss.getUrl() };
 }
 
-const PUBLIC_STARTUP_CACHE_BASE_ = 'publicStartupPayload_v3_2_eligibility';
+const PUBLIC_STARTUP_CACHE_BASE_ = 'publicStartupPayload_v3_10_reactivate';
 const PUBLIC_STARTUP_CACHE_SECONDS_ = 21600;
 const PUBLIC_STARTUP_CACHE_CHUNK_SIZE_ = 78000;
 
@@ -211,7 +252,7 @@ function buildPublicStartupPayload_() {
     ? buildRotaWindowFromData_(latest, assignments, teams, consultants, 8)
     : { meta: null, weeks: [], viewMode: 'window', window: null, summary: 'No official rota generated yet.' };
   return {
-    app: { title: APP.title, version: APP.version, timezone: APP.timezone, subTeamFeatureVersion: 7 },
+    app: { title: APP.title, version: APP.version, timezone: APP.timezone, subTeamFeatureVersion: 9 },
     serverTime: now_(),
     teams: teams,
     consultants: consultants,
@@ -225,6 +266,7 @@ function readObjectsNoRepair_(sheetName) {
   const sh = getDb_().getSheetByName(sheetName);
   if (!sh) throw new Error(`Database sheet ${sheetName} is missing. Main admin must run Setup -> Safe Repair / Add Missing Columns.`);
   const values = sh.getDataRange().getValues();
+  perfSheetRead_(values.length > 0 ? values.length - 1 : 0);
   if (values.length < 2) return [];
   const headers = values[0].map(String);
   return values.slice(1)
@@ -286,6 +328,21 @@ function buildRotaWindowFromData_(latest, assignments, teams, consultants, windo
   return view;
 }
 
+// Public rota display only. This does not remove, modify, or rewrite assignment records.
+// A consultant with a future InactiveFrom remains visible until their last eligible
+// week. A date within a week makes that whole weekly assignment ineligible,
+// consistent with isActiveForWeek_ in the generator.
+function hidePublicInactiveAssignment_(assignment, consultantLookup) {
+  if (String(assignment.AssignmentPlace || '') === 'Inactive') return true;
+  const consultant = consultantLookup[String(assignment.ConsultantID || '')];
+  if (!consultant) return false; // Preserve independent external/manual cover.
+  const inactiveFrom = String(consultant.InactiveFrom || '').slice(0, 10);
+  const weekEnd = String(assignment.WeekEnd || assignment.WeekStart || '').slice(0, 10);
+  if (inactiveFrom) return !!weekEnd && inactiveFrom <= weekEnd;
+  // Legacy records may have CurrentStatus=Inactive but no date.
+  return String(consultant.CurrentStatus || '').trim().toLowerCase() === 'inactive';
+}
+
 function buildRotaViewFromData_(latest, rows, teams, consultants) {
   const teamById = {};
   const teamOrder = {};
@@ -300,7 +357,12 @@ function buildRotaViewFromData_(latest, rows, teams, consultants) {
     }
     const team = teamById[String(r.TeamID)] || { TeamName: r.TeamID, ColorHex: '#0f172a' };
     if (!weekMap[weekKey].teams[r.TeamID]) {
-      weekMap[weekKey].teams[r.TeamID] = { teamId: r.TeamID, teamName: team.TeamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+      weekMap[weekKey].teams[r.TeamID] = { teamId: r.TeamID, teamName: team.TeamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]),
+        scheduledStandardFrom: (!isSubTeamActiveForWeek_(team, r.WeekStart) ? String(team.SubTeamUntil || '').slice(0,10) : ''), scheduledSubTeamsFrom: String(team.SubTeamResumeFrom || '').slice(0,10), weekStart: String(r.WeekStart || '').slice(0,10), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+    }
+    if (hidePublicInactiveAssignment_(r, consultantById)) {
+      if (String(r.AssignmentPlace) !== 'Inactive') weekMap[weekKey].teams[r.TeamID].hasHiddenInactiveAssignments = true;
+      return;
     }
     const person = personFromAssignment_(r, consultantById);
     if (!weekMap[weekKey].teams[r.TeamID].subTeamNames.length) weekMap[weekKey].teams[r.TeamID].subTeamNames = subTeamNamesForView_(team, r.WeekStart, [r]);
@@ -355,25 +417,19 @@ function putCachedJsonChunks_(baseKey, value, seconds) {
 }
 
 function invalidatePublicStartupCache_() {
-  const cache = CacheService.getScriptCache();
-  const metaKey = PUBLIC_STARTUP_CACHE_BASE_ + '_meta';
-  const metaRaw = cache.get(metaKey);
-  const keys = [metaKey];
-  if (metaRaw) {
-    try {
-      const count = Math.max(0, Number(JSON.parse(metaRaw).count || 0));
-      for (let i = 0; i < count; i++) keys.push(PUBLIC_STARTUP_CACHE_BASE_ + '_part_' + i);
-    } catch (_) {}
-  }
-  try { cache.removeAll(keys); } catch (_) { keys.forEach(k => cache.remove(k)); }
+  if (API_PERF_CONTEXT_) API_PERF_CONTEXT_.cacheInvalidations++;
+  // The metadata key is the commit marker. Removing it makes ALL existing parts
+  // unreachable to readers; stale chunks expire by their normal TTL. No need to
+  // fetch the old metadata and delete potentially many part keys on each write.
+  CacheService.getScriptCache().remove(PUBLIC_STARTUP_CACHE_BASE_ + '_meta');
 }
 
 function warmPublicStartupCache_() {
-  try { return buildAndCachePublicStartupPayload_(); }
-  catch (err) {
-    console.error('Public startup snapshot warm-up failed: ' + ((err && err.message) || String(err)));
-    return null;
-  }
+  // Administrative writes already invalidate the public snapshot. Rebuilding it here
+  // makes leave approval and manual edits block on five extra Sheet reads plus
+  // serialization. Let the next public read refresh the snapshot once, on demand.
+  invalidatePublicStartupCache_();
+  return null;
 }
 
 function sheetAffectsPublicStartup_(sheetName) {
@@ -381,6 +437,7 @@ function sheetAffectsPublicStartup_(sheetName) {
 }
 
 function getAdminData(adminPin, mode) {
+  return withAdminReadMemo_(function() {
   const session = requireAnyAdmin_(adminPin);
   const latest = getLatestVersion_();
   const allTeams = getTeams_();
@@ -388,6 +445,9 @@ function getAdminData(adminPin, mode) {
   const includeLeave = String(mode || '') !== 'dashboard';
   const allLeave = includeLeave ? readObjects_(SHEETS.LeaveRequests) : [];
   const allowedTeamIds = session.isMainAdmin ? null : [String(session.teamId || '')];
+  const periods = session.isMainAdmin ? getRotaPeriods_() : [];
+  const versions = session.isMainAdmin ? getRotaVersions_(periods) : [];
+  const latestConflicts = getLatestConflicts_(latest, allTeams);
   return {
     adminSession: session,
     settings: getPublicSettings_(),
@@ -398,15 +458,17 @@ function getAdminData(adminPin, mode) {
     leaveRequestsIncluded: includeLeave,
     adminUsers: session.isMainAdmin ? getPublicAdminUsers_() : [],
     latestVersion: latest,
-    rotaPeriods: session.isMainAdmin ? getRotaPeriods_() : [],
-    rotaVersions: session.isMainAdmin ? getRotaVersions_() : [],
+    rotaPeriods: periods,
+    rotaVersions: versions,
     latestRota: latest ? { meta: latest, weeks: [], notLoaded: true } : { meta: null, weeks: [] },
     assignmentStorage: null,
-    latestConflicts: session.isMainAdmin ? getLatestConflicts_() : getLatestConflicts_().filter(c => allowedTeamIds.indexOf(String(c.TeamID)) !== -1)
+    latestConflicts: session.isMainAdmin ? latestConflicts : latestConflicts.filter(c => allowedTeamIds.indexOf(String(c.TeamID)) !== -1)
   };
+  });
 }
 
 function getAdminLeaveData(adminPin) {
+  return withAdminReadMemo_(function() {
   const session = requireAnyAdmin_(adminPin);
   const allTeams = getTeams_();
   const allConsultants = getConsultants_();
@@ -420,6 +482,7 @@ function getAdminLeaveData(adminPin) {
     leaveRequests: allowedTeamIds ? allLeave.filter(l => allowedTeamIds.indexOf(String(l.TeamID)) !== -1) : allLeave,
     leaveRequestsIncluded: true
   };
+  });
 }
 
 function getAssignmentStorageSummary(adminPin) {
@@ -552,12 +615,15 @@ function publishManualEditedWeek(adminPin, data) {
 }
 
 function setupDatabaseAdmin(adminToken) {
+  // Safe Repair always performs a fresh header check even if this request has
+  // already read a sheet; never trust request-local schema memo for repairs.
+  if (REQUEST_SHEET_MEMO_) REQUEST_SHEET_MEMO_ = Object.create(null);
   const session = requireAdminPin_(adminToken);
   const lock = LockService.getDocumentLock();
   lock.waitLock(30000);
   try {
     const cache = CacheService.getScriptCache();
-    ['dbReady', 'dbReady_v1_6', 'dbReady_v1_7', 'dbReady_v1_8', 'dbReady_v1_9', 'dbReady_v2_3_subteams'].forEach(k => cache.remove(k));
+    ['dbReady', 'dbReady_v1_6', 'dbReady_v1_7', 'dbReady_v1_8', 'dbReady_v1_9', 'dbReady_v2_3_subteams', 'dbReady_v3_10_reactivate'].forEach(k => cache.remove(k));
     const result = setupDatabase();
     const archiveSummary = assignmentStorageSummary_();
     warmPublicStartupCache_();
@@ -658,7 +724,7 @@ function subTeamStructureLocked_(team) {
   // in any stored version. Cache affirmative results to avoid repeatedly
   // scanning archive spreadsheets when administrators open Team Settings.
   const cache=typeof CacheService==='undefined'?null:CacheService.getScriptCache();
-  const cacheKey='lockedSubTeam_v3_2_'+String(team.TeamID).slice(0,55)+'_'+effective+'_'+names.join('_').slice(0,90);
+  const cacheKey='lockedSubTeam_v3_3_'+String(team.TeamID).slice(0,55)+'_'+effective+'_'+names.join('_').slice(0,90);
   if(cache && cache.get(cacheKey)==='yes')return true;
   // A Standard-rota version covering this date is NOT evidence the sub-team
   // structure was used. Lock only after a version really contains these roles.
@@ -728,7 +794,7 @@ function saveTeam(adminPin, team) {
     }
     // Only allow an explicit current-period activation for an existing team;
     // never interpret a metadata-only edit as an activation change.
-    if (proposedFrom && latestForActivation && subFrom <= String(latestForActivation.EndDate).slice(0,10)) {
+    if (proposedFrom && (previousType !== 'SubTeam' || activationChanged) && latestForActivation && subFrom <= String(latestForActivation.EndDate).slice(0,10)) {
       if (!existingTeam) throw new Error('Current-period activation is intended for an existing team.');
       if (subFrom < String(latestForActivation.StartDate).slice(0,10)) throw new Error('Activation precedes the current rota period.');
     }
@@ -740,18 +806,71 @@ function saveTeam(adminPin, team) {
       readObjects_(SHEETS.RotaVersions).some(v => v.Status === 'Draft' && String(v.EndDate || '').slice(0,10) >= subFrom)) {
       throw new Error('A draft rota already exists for the next period. Delete that draft first, configure the existing team sub-teams, then generate a new draft. The published rota will remain unchanged.');
     }
+    // Scheduled deactivation changes the future scheduling mode, not the team identity.
+    // Keep the original names so historical versions and sub-team fairness remain interpretable.
+    const priorUntil = String((existingTeam && existingTeam.SubTeamUntil) || '').slice(0,10);
+    const stopSubmitted = Object.prototype.hasOwnProperty.call(team, 'SubTeamUntil');
+    const subUntil = teamType === 'SubTeam'
+      ? String(stopSubmitted ? team.SubTeamUntil : priorUntil).trim().slice(0,10) : '';
+    if (previousType === 'SubTeam' && teamType !== 'SubTeam') {
+      throw new Error('Schedule a sub-team deactivation Sunday instead of overwriting the team type. This preserves older published rota assignments.');
+    }
+    if (subUntil) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(subUntil) ||
+          iso_(startOfWeekSunday_(toDate_(subUntil))) !== subUntil) {
+        throw new Error('Deactivation date must be a Sunday (YYYY-MM-DD).');
+      }
+      if (subFrom && subUntil <= subFrom) throw new Error('Deactivation must be after the sub-team activation date.');
+      const thisSunday = iso_(startOfWeekSunday_(new Date()));
+      if (subUntil < thisSunday && subUntil !== priorUntil) throw new Error('Deactivation cannot change completed rota weeks.');
+      if (priorUntil && priorUntil < thisSunday && priorUntil !== subUntil)
+        throw new Error('A historical deactivation date cannot be changed.');
+      // A draft generated under a different configuration must not be reinterpreted.
+      if (subUntil !== priorUntil && readObjects_(SHEETS.RotaVersions).some(v =>
+          v.Status === 'Draft' && String(v.EndDate || '').slice(0,10) >= (subUntil || priorUntil)))
+        throw new Error('Delete the existing draft before scheduling sub-team deactivation, then create a fresh selected-team draft.');
+    }
+    if (!subUntil && priorUntil && readObjects_(SHEETS.RotaVersions).some(v =>
+        v.Status === 'Draft' && String(v.EndDate || '').slice(0,10) >= priorUntil)) {
+      throw new Error('Delete the existing draft before cancelling the sub-team deactivation date.');
+    }
+    // Optional single reactivation: keep the original start/stop dates and restore
+    // the same two named services from a chosen future Sunday. This is deliberately
+    // a second interval, never an overwrite of the historical activation date.
+    const priorResume = String((existingTeam && existingTeam.SubTeamResumeFrom) || '').slice(0,10);
+    const resumeSubmitted = Object.prototype.hasOwnProperty.call(team, 'SubTeamResumeFrom');
+    const subResume = teamType === 'SubTeam'
+      ? String(resumeSubmitted ? team.SubTeamResumeFrom : priorResume).trim() : '';
+    if (subResume) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(subResume) ||
+          iso_(startOfWeekSunday_(toDate_(subResume))) !== subResume) {
+        throw new Error('Reactivation must be a Sunday (YYYY-MM-DD), or choose a rota week that starts Sunday.');
+      }
+      if (!subUntil) throw new Error('Schedule a deactivation Sunday before scheduling reactivation.');
+      if (subResume <= subUntil) throw new Error('Reactivation must be after the deactivation Sunday.');
+      const thisSunday = iso_(startOfWeekSunday_(new Date()));
+      if (subResume < thisSunday && subResume !== priorResume)
+        throw new Error('Reactivation cannot begin in a completed/past week.');
+    }
+    if (priorResume && priorResume < iso_(startOfWeekSunday_(new Date())) && subResume !== priorResume)
+      throw new Error('A historical reactivation date cannot be changed or removed.');
+    if (subResume !== priorResume && readObjects_(SHEETS.RotaVersions).some(v =>
+        v.Status === 'Draft' && String(v.EndDate || '').slice(0,10) >= (subResume && priorResume
+          ? (subResume < priorResume ? subResume : priorResume) : (subResume || priorResume)))) {
+      throw new Error('Delete the existing draft before changing the reactivation date, then create a new selected-team draft.');
+    }
     // Renaming sub-teams before activation should not leave an invalid saved default.
     if (priority && !subNames.includes(priority)) {
       if (team.OneConsultantPriority != null) throw new Error('Single-consultant coverage priority must match one of the two sub-team names.');
       priority = '';
     }
-    const teamFields = { TeamType:teamType, SubTeamConfig:subConfig, SubTeamFrom:subFrom, OneConsultantPriority:priority };
+    const teamFields = { TeamType:teamType, SubTeamConfig:subConfig, SubTeamFrom:subFrom, OneConsultantPriority:priority, SubTeamUntil:subUntil, SubTeamResumeFrom:subResume };
     const teamId = isUpdate ? String(team.TeamID) : makeId_('T');
     if (isUpdate) updateRow_(SHEETS.Teams, 'TeamID', teamId, Object.assign({ TeamName: name, ColorHex: colorHex, DisplayOrder: displayOrder, Active: normalizeYesNo_(team.Active, 'Yes'), UpdatedAt: now }, teamFields));
     else appendObject_(SHEETS.Teams, Object.assign({ TeamID: teamId, TeamName: name, ColorHex: colorHex, DisplayOrder: displayOrder, Active: normalizeYesNo_(team.Active, 'Yes'), CreatedAt: now, UpdatedAt: now }, teamFields));
-    appendAudit_(session, isUpdate ? 'TEAM_UPDATED' : 'TEAM_CREATED', 'Team', teamId, { name: name, displayOrder: displayOrder, active: normalizeYesNo_(team.Active, 'Yes'), teamType:teamType, subTeams:subNames, effectiveFrom:subFrom });
+    appendAudit_(session, isUpdate ? 'TEAM_UPDATED' : 'TEAM_CREATED', 'Team', teamId, { name: name, displayOrder: displayOrder, active: normalizeYesNo_(team.Active, 'Yes'), teamType:teamType, subTeams:subNames, effectiveFrom:subFrom, inactiveSubTeamsFrom:subUntil, reactivatedSubTeamsFrom:subResume });
     warmPublicStartupCache_();
-    return { ok: true, teamId:teamId, teamType:teamType, subTeamNames:subNames, effectiveFrom:subFrom, message: (isUpdate ? 'Existing team updated' : 'Team added') + (teamType === 'SubTeam' ? '. Two sub-teams saved; takes effect ' + (subFrom || 'with the first rota period') + '. Create and publish a selected-team draft to update the active rota; the existing published rota is unchanged.' : '.') };
+    return { ok: true, teamId:teamId, teamType:teamType, subTeamNames:subNames, effectiveFrom:subFrom, subTeamsUntil:subUntil, subTeamsResumeFrom:subResume, message: (isUpdate ? 'Existing team updated' : 'Team added') + (teamType === 'SubTeam' ? '. Two sub-teams saved; takes effect ' + (subFrom || 'with the first rota period') + (subUntil ? '; returns to the Standard single-team rota on ' + subUntil : '') + (subResume ? '; reactivates the two inpatient sub-teams on ' + subResume : '') + '. Create and publish a selected-team draft to update the active rota; the existing published rota is unchanged.' : '.') };
   } finally { lock.releaseLock(); }
 }
 
@@ -864,7 +983,8 @@ function saveConsultant(adminPin, c) {
         }
       }
       appendAudit_(authenticateAdmin_(adminPin), 'CONSULTANT_UPDATED', 'Consultant', c.ConsultantID, { name: name, teamId: teamId, consultantType: consultantType, canOffDuty: normalizeYesNo_(c.CanOffDuty, 'Yes'), subTeamAssignment:subTeamSetting, status: currentStatus, activeFrom: activeFrom, inactiveFrom: inactiveFrom });
-      warmPublicStartupCache_();
+      // Public cache was invalidated by sheet writes; rebuild on next read.
+
       return { ok: true, message: msg };
     }
 
@@ -898,7 +1018,8 @@ function saveConsultant(adminPin, c) {
       throw new Error('Consultant addition reversed; no official rota changed: '+((err&&err.message)||String(err)));
     }
     appendAudit_(authenticateAdmin_(adminPin), 'CONSULTANT_CREATED', 'Consultant', newId, { name: name, teamId: teamId, consultantType: consultantType, canOffDuty: normalizeYesNo_(c.CanOffDuty, 'Yes'), subTeamAssignment:subTeamSetting, status: currentStatus, activeFrom: activeFrom, inactiveFrom: inactiveFrom });
-    warmPublicStartupCache_();
+    // Public cache was invalidated by sheet writes; rebuild on next read.
+
     return { ok: true, message: msg };
   } finally {
     lock.releaseLock();
@@ -1035,6 +1156,8 @@ function createDraftRota(adminPin, params) {
     if (start < latestStart || start > latestEnd) {
       throw new Error('For selected-team generation, the start date must be inside the current active rota period.');
     }
+    if (start < startOfWeekSunday_(new Date()))
+      throw new Error('Completed/past weeks are protected. Select this Sunday or a future Sunday for the team draft.');
     const fromWeekNo = Math.floor((start.getTime() - latestStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
     const weeks = Number(latest.Weeks || requestedWeeks || 52);
 
@@ -1148,6 +1271,13 @@ function publishDraftRota(adminPin, versionId) {
   } finally { lock.releaseLock(); }
 }
 
+function consultantUnavailableForLeave_(c) {
+  if (!c) return true;
+  if (String(c.CurrentStatus || '').toLowerCase() === 'inactive') return true;
+  const inactiveFrom = String(c.InactiveFrom || '').slice(0,10);
+  return !!inactiveFrom && inactiveFrom <= iso_(new Date());
+}
+
 function submitLeaveRequest(data) {
   setupDatabase();
   const lock = LockService.getDocumentLock();
@@ -1156,6 +1286,7 @@ function submitLeaveRequest(data) {
     const consultantId = String(data.ConsultantID || '').trim();
     const consultant = getConsultants_().find(c => c.ConsultantID === consultantId);
     if (!consultant) throw new Error('Please select a valid consultant.');
+    if (consultantUnavailableForLeave_(consultant)) throw new Error('Inactive consultants cannot submit or edit leave requests. Contact the administrator if reactivated.');
     const start = toDate_(data.StartDate);
     const end = toDate_(data.EndDate);
     if (end < start) throw new Error('Leave end date cannot be before start date.');
@@ -1180,6 +1311,7 @@ function checkLeaveAvailability(data) {
   const consultantId = String(data.ConsultantID || '').trim();
   const consultant = getConsultants_().find(c => c.ConsultantID === consultantId);
   if (!consultant) throw new Error('Please select your name.');
+  if (consultantUnavailableForLeave_(consultant)) throw new Error('Inactive consultants cannot submit or edit leave requests. Contact the administrator if reactivated.');
   const start = toDate_(data.StartDate);
   const end = toDate_(data.EndDate);
   if (end < start) throw new Error('Leave end date cannot be before start date.');
@@ -1245,6 +1377,7 @@ function updateLeaveRequest(data) {
     if (!leaveId) throw new Error('Select a pending/rejected leave request to edit.');
     const consultant = getConsultants_().find(c => c.ConsultantID === consultantId);
     if (!consultant) throw new Error('Please select a valid consultant.');
+    if (consultantUnavailableForLeave_(consultant)) throw new Error('Inactive consultants cannot submit or edit leave requests. Contact the administrator if reactivated.');
     const leave = readObjects_(SHEETS.LeaveRequests).find(l => l.LeaveID === leaveId);
     if (!leave) throw new Error('Leave request was not found.');
     if (leave.ConsultantID !== consultant.ConsultantID) throw new Error('This leave request does not belong to the selected consultant.');
@@ -1306,7 +1439,7 @@ function getLeaveOverlapStats_(leave) {
     // Only compare against different consultants from the same team.
     if (l.ConsultantID === leave.ConsultantID) return false;
     const status = normalizeStatus_(l.Status);
-    if (status === 'rejected' || status === 'cancelled' || status === 'superseded') return false;
+    if (status === 'rejected' || status === 'cancelled') return false;
     return datesOverlap_(toDate_(l.StartDate), toDate_(l.EndDate), leaveStart, leaveEnd);
   });
   return {
@@ -1405,81 +1538,101 @@ function approveLeave(adminPin, leaveId, overrideReason) {
 }
 
 
-// Lightweight session check used by the frontend to restore admin navigation after a reload.
-function getAdminSession(sessionToken) {
-  return publicAdminSession_(authenticateAdmin_(sessionToken));
-}
-
-// Replaces an approved leave with revised dates. The original row is kept as 'Superseded'
-// (audit trail) and a new Approved row is created, linked both ways. The rota is recalculated
-// for the affected team across the union of old and new dates; past weeks are never changed.
-function amendApprovedLeave(adminToken, leaveId, startDate, endDate, reason) {
+/**
+ * Main/team admins may replace an already approved leave with corrected dates.
+ * The old record is kept as Superseded (audit trail), the replacement receives
+ * a new LeaveID and a link to the original. Earlier rota weeks are never edited.
+ * This does not auto-reconcile OTHER approved requests for the same consultant.
+ */
+function amendApprovedLeave(adminToken, originalLeaveId, newStartISO, newEndISO, adminNote) {
   setupDatabase();
   const lock = LockService.getDocumentLock(); lock.waitLock(30000);
   try {
-    const old = readObjects_(SHEETS.LeaveRequests).find(l => l.LeaveID === leaveId);
-    if (!old) throw new Error('Leave request was not found.');
-    const session = requireLeaveAdmin_(adminToken, old);
-    if (normalizeStatus_(old.Status) !== 'approved') throw new Error('Only approved leave can be amended. Refresh leave data and try again.');
-    const why = String(reason || '').trim();
-    if (!why) throw new Error('A reason is required to amend approved leave.');
-    const start = toDate_(startDate), end = toDate_(endDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) throw new Error('Enter valid YYYY-MM-DD dates.');
-    if (end < start) throw new Error('Leave end date cannot be before start date.');
-    const newStart = iso_(start), newEnd = iso_(end);
-    if (newStart === iso_(toDate_(old.StartDate)) && newEnd === iso_(toDate_(old.EndDate))) throw new Error('The revised dates are the same as the approved dates.');
-
-    const decidedAt = now_();
-    const replacement = {
-      LeaveID: makeId_('L'), ConsultantID: old.ConsultantID, TeamID: old.TeamID,
-      StartDate: newStart, EndDate: newEnd, Status: 'Approved', SubmittedAt: decidedAt,
-      UserNote: old.UserNote || '', AdminDecisionDate: decidedAt, AdminNote: 'Amended: ' + why,
-      ImpactStatus: '', ImpactSummary: '', SupersedesLeaveID: old.LeaveID, SupersededByLeaveID: ''
-    };
-    const oldRestore = { Status: old.Status, AdminDecisionDate: old.AdminDecisionDate || '', AdminNote: old.AdminNote || '', SupersededByLeaveID: old.SupersededByLeaveID || '' };
-    appendObject_(SHEETS.LeaveRequests, replacement);
-    updateRow_(SHEETS.LeaveRequests, 'LeaveID', old.LeaveID, { Status: 'Superseded', AdminDecisionDate: decidedAt, AdminNote: 'Superseded: ' + why, SupersededByLeaveID: replacement.LeaveID });
-
-    const rollback = () => {
-      try { deleteRowsWhere_(SHEETS.LeaveRequests, r => r.LeaveID === replacement.LeaveID); } catch (_) {}
-      try { updateRow_(SHEETS.LeaveRequests, 'LeaveID', old.LeaveID, oldRestore); } catch (_) {}
-    };
+    const oldLeave = readObjects_(SHEETS.LeaveRequests).find(l => String(l.LeaveID) === String(originalLeaveId));
+    if (!oldLeave) throw new Error('Original leave request was not found.');
+    const session = requireLeaveAdmin_(adminToken, oldLeave);
+    if (normalizeStatus_(oldLeave.Status) !== 'approved')
+      throw new Error('Only currently approved leave can be amended. Refresh leave data.');
+    const startText = String(newStartISO || '').trim(), endText = String(newEndISO || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startText) || !/^\d{4}-\d{2}-\d{2}$/.test(endText))
+      throw new Error('Use YYYY-MM-DD for both dates.');
+    const start = toDate_(startText), end = toDate_(endText);
+    if (iso_(start) !== startText || iso_(end) !== endText || end < start)
+      throw new Error('The amended leave dates are not valid.');
+    if (startText === String(oldLeave.StartDate) && endText === String(oldLeave.EndDate))
+      throw new Error('The amended dates are identical to the approved dates.');
+    const note = String(adminNote || '').trim().slice(0, 500);
+    if (!note) throw new Error('Enter a short amendment reason for the audit history.');
 
     const latest = getLatestVersion_();
-    const affStart = toDate_(old.StartDate) < start ? toDate_(old.StartDate) : start;
-    const affEnd = toDate_(old.EndDate) > end ? toDate_(old.EndDate) : end;
-    let result = null;
-    if (latest && !(affEnd < toDate_(latest.StartDate) || affStart > toDate_(latest.EndDate))) {
-      try {
-        const consultant = findConsultant_(old.ConsultantID);
-        const effective = affStart < toDate_(latest.StartDate) ? latest.StartDate : iso_(affStart);
-        result = createAmendmentFromDate_(effective, 'Leave amendment',
-          `Amended leave for ${consultant ? consultant.Name : old.ConsultantID}: ${old.StartDate}–${old.EndDate} → ${newStart}–${newEnd}`,
-          { requestType: 'Leave', requestId: replacement.LeaveID, ruleBroken: 'Approved leave amended', reason: why },
-          [old.TeamID], iso_(affEnd));
-      } catch (err) {
-        rollback();
-        throw new Error('Leave amendment was rolled back because the rota amendment failed: ' + ((err && err.message) || String(err)));
+    if (latest && getRotaVersions_().some(v => v.Status === 'Draft'))
+      throw new Error('An unpublished draft exists. Publish or delete it before amending approved leave.');
+    const newId = makeId_('L');
+    const replacement = {
+      LeaveID: newId, ConsultantID: oldLeave.ConsultantID, TeamID: oldLeave.TeamID,
+      StartDate: startText, EndDate: endText, Status: 'Approved',
+      SubmittedAt: now_(), UserNote: oldLeave.UserNote || '',
+      AdminDecisionDate: now_(), AdminNote: note,
+      ImpactStatus: '', ImpactSummary: '',
+      SupersedesLeaveID: oldLeave.LeaveID, SupersededByLeaveID: ''
+    };
+    const prior = {
+      Status: oldLeave.Status, AdminDecisionDate: oldLeave.AdminDecisionDate || '',
+      AdminNote: oldLeave.AdminNote || '', ImpactStatus: oldLeave.ImpactStatus || '',
+      ImpactSummary: oldLeave.ImpactSummary || '', SupersededByLeaveID: oldLeave.SupersededByLeaveID || ''
+    };
+    let inserted = false, changedOld = false, result = null;
+    try {
+      appendObject_(SHEETS.LeaveRequests, replacement); inserted = true;
+      updateRow_(SHEETS.LeaveRequests, 'LeaveID', oldLeave.LeaveID, {
+        Status: 'Superseded', SupersededByLeaveID: newId,
+        ImpactStatus: 'Superseded', ImpactSummary: 'Replaced by approved leave ' + newId,
+        AdminDecisionDate: now_(), AdminNote: note
+      });
+      changedOld = true;
+      if (latest) {
+        const from = toDate_(oldLeave.StartDate) < start ? oldLeave.StartDate : startText;
+        const until = toDate_(oldLeave.EndDate) > end ? oldLeave.EndDate : endText;
+        result = createAmendmentFromDate_(from, 'Approved leave dates amended',
+          'Amended approved leave', null, [String(oldLeave.TeamID)], until);
       }
+      if (!result) result = { message: 'New dates recorded for future rota generation.', amendmentCreated: false, conflicts: [] };
+    } catch (err) {
+      const rollbackErrors = [];
+      if (changedOld) {
+        try { updateRow_(SHEETS.LeaveRequests, 'LeaveID', oldLeave.LeaveID, prior); }
+        catch (restoreErr) { rollbackErrors.push('original record'); }
+      }
+      if (inserted) {
+        try { deleteRowsWhere_(SHEETS.LeaveRequests, r => String(r.LeaveID) === newId); }
+        catch (deleteErr) { rollbackErrors.push('replacement record'); }
+      }
+      if (rollbackErrors.length) throw new Error('Leave amendment failed and rollback was incomplete (' + rollbackErrors.join(', ') + '). Inspect the staging database before retrying.');
+      throw new Error('Leave amendment was not published; original leave retained: ' + ((err && err.message) || String(err)));
     }
-
-    let level = 'Future', summary = 'No current rota amendment was needed for these dates.';
-    if (result && result.amendmentCreated) {
-      const teamConflicts = (result.conflicts || []).filter(c => c.TeamID === old.TeamID);
-      level = deriveImpactLevel_(teamConflicts, replacement, latest);
-      summary = summarizeImpact_(level, teamConflicts, replacement, latest);
-    }
-    updateRow_(SHEETS.LeaveRequests, 'LeaveID', replacement.LeaveID, { ImpactStatus: level, ImpactSummary: summary });
-    appendAudit_(session, 'LEAVE_AMENDED', 'LeaveRequest', replacement.LeaveID, {
-      supersedes: old.LeaveID, consultantId: old.ConsultantID, teamId: old.TeamID,
-      oldStart: old.StartDate, oldEnd: old.EndDate, newStart: newStart, newEnd: newEnd, reason: why,
-      amendmentId: result && result.version && result.amendmentCreated ? result.version.VersionID : '',
-      amendmentNo: result && result.version && result.amendmentCreated ? result.version.AmendmentNo : ''
+    // A successful rota publication is the commit boundary. A later metadata
+    // write failure must NOT restore superseded dates while leaving the new
+    // published rota in place. Report that as a reconciliation warning.
+    let metadataWarning = false;
+    try {
+      updateRow_(SHEETS.LeaveRequests, 'LeaveID', newId, {
+        ImpactStatus: result.amendmentCreated ? 'Amended' : 'Future',
+        ImpactSummary: result.message
+      });
+    } catch (metadataErr) { metadataWarning = true; }
+    appendAudit_(session, 'APPROVED_LEAVE_AMENDED', 'LeaveRequest', newId, {
+      supersedesLeaveId: oldLeave.LeaveID, consultantId: oldLeave.ConsultantID,
+      oldStart: oldLeave.StartDate, oldEnd: oldLeave.EndDate,
+      newStart: startText, newEnd: endText, publishedVersion: result.version && result.version.VersionID,
+      amendmentCreated: !!result.amendmentCreated
     });
-    return { ok: true, message: 'Approved leave amended. ' + (result ? result.message : summary),
-      leaveId: replacement.LeaveID, version: result && result.version, conflicts: (result && result.conflicts) || [] };
+    return { ok: true, message: 'Leave dates amended. Previous request preserved as Superseded. ' + result.message +
+      (metadataWarning ? ' Warning: impact summary could not be written; review staging leave details.' : ''),
+      leaveId: newId, supersedesLeaveId: oldLeave.LeaveID,
+      version: result.version || null, conflicts: result.conflicts || [] };
   } finally { lock.releaseLock(); }
 }
+
 
 function cancelApprovedLeave(adminPin, leaveId, note) {
   const session = requireAdminPin_(adminPin);
@@ -2280,11 +2433,12 @@ function buildRotaRows_(opts) {
     const weekStart = addDays_(opts.startDate, (weekNo - 1) * 7);
     const weekEnd = addDays_(weekStart, 6);
     teams.forEach(team => {
+      const teamConsultants=consultants.filter(c=>String(c.TeamID)===String(team.TeamID));
       const buildFn = isSubTeamActiveForWeek_(team, weekStart) ? buildSubTeamWeekRows_ : buildTeamWeekRows_;
       const result = buildFn({
         versionId: opts.versionId,
         team: team,
-        consultants: consultants.filter(c => c.TeamID === team.TeamID),
+        consultants: teamConsultants,
         leaves: leaves,
         weekNo: weekNo,
         weekStart: weekStart,
@@ -2324,7 +2478,14 @@ function consultantAllowedInSubTeam_(consultant, role, roles, weekStart) {
 }
 function isSubTeamConfigured_(team) { return !!team && team.TeamType === 'SubTeam'; }
 function isSubTeamActiveForWeek_(team, date) {
-  return isSubTeamConfigured_(team) && (!team.SubTeamFrom || iso_(date) >= String(team.SubTeamFrom).slice(0,10));
+  if (!isSubTeamConfigured_(team)) return false;
+  const week = iso_(date);
+  const activated = !team.SubTeamFrom || week >= String(team.SubTeamFrom).slice(0,10);
+  const stop = String(team.SubTeamUntil || '').slice(0,10);
+  const resume = String(team.SubTeamResumeFrom || '').slice(0,10);
+  // Sub-team weeks: [initial activation, stop), then [resume, onwards).
+  // The interval between stop and resume remains a one-inpatient parent team.
+  return activated && (!stop || week < stop || (!!resume && week >= resume));
 }
 function subTeamNamesForView_(team, date, teamRows) {
   const registered = isSubTeamConfigured_(team) ? subTeamNames_(team) : [];
@@ -2333,6 +2494,8 @@ function subTeamNamesForView_(team, date, teamRows) {
   // headings PENDING, retains the actual Team coverage, and never invents staff.
   if (isSubTeamActiveForWeek_(team, date)) return registered;
   // Older published sub-team assignments still use their own historical labels.
+  if ((teamRows || []).some(r => registered.indexOf(String(r.AssignmentPlace)) !== -1)) return registered;
+  // Historical legacy names are preserved for teams configured before custom labels.
   if ((teamRows || []).some(r => r.AssignmentPlace === 'TCU' || r.AssignmentPlace === 'EMCU')) return ['TCU','EMCU'];
   return [];
 }
@@ -2421,10 +2584,18 @@ function buildSubTeamWeekRows_(ctx) {
   const start = iso_(ctx.weekStart), end = iso_(ctx.weekEnd);
   const available = [], leave = [], inactive = [];
   ctx.consultants.forEach(c => {
+    // A future hire must not appear as Leave just because leave was entered
+    // before their joining date. Effective staffing comes first.
     if (isInactiveForWeek_(c,ctx.weekStart,ctx.weekEnd)) inactive.push(c);
+    else if (!isActiveForWeek_(c,ctx.weekStart,ctx.weekEnd)) return;
     else if (isOnLeave_(c.ConsultantID,ctx.weekStart,ctx.weekEnd,ctx.leaves)) leave.push(c);
-    else if (isActiveForWeek_(c,ctx.weekStart,ctx.weekEnd)) available.push(c);
+    else available.push(c);
   });
+  // A roster change starts a new fairness comparison cohort. Approved leave
+  // does NOT count as a roster change: its weeks simply do not earn workload
+  // opportunities, whether the leave is in the past or still scheduled.
+  beginFairnessCohortWeek_(ctx.state,teamId,
+    available.concat(leave).map(c=>c.ConsultantID),week);
   const manual = ctx.manual || {};
   const requested = [String(manual.subTeam1ConsultantId || '').trim(), String(manual.subTeam2ConsultantId || '').trim()];
   const manualOff = String(manual.offConsultantId || '').trim();
@@ -2480,6 +2651,15 @@ function buildSubTeamWeekRows_(ctx) {
       for (let i=0;i<a.score.length;i++) if (a.score[i] !== b.score[i]) return a.score[i]-b.score[i];
       return a.key.localeCompare(b.key);
     };
+    // A manual TCU/EMCU assignment is a new rotation anchor: on the next
+    // inpatient assignment, prefer the OTHER service for that consultant.
+    // This is tracked across OPD, Off-duty, approved leave and parent-Team
+    // weeks. Fixed-service restrictions can make a swap impossible.
+    const repeatedService = (c,role) => {
+      const id=String(c.ConsultantID);
+      const prev=(ctx.state.lastSubTeamRole||{})[String(teamId)+'|'+id]||'';
+      return prev===role && roles.some(other=>other!==role && consultantAllowedInSubTeam_(c,other,roles,start)) ? 1 : 0;
+    };
     const lastDutyGap = c => inpatientRecencyGap_(ctx.state,c.ConsultantID,week);
     const lastRole = c => {
       const id = String(c.ConsultantID);
@@ -2512,6 +2692,7 @@ function buildSubTeamWeekRows_(ctx) {
       const possibleOffs = manualOff ? offOptions.filter(c=>String(c.ConsultantID)===manualOff) : [null].concat(offOptions);
       possibleOffs.forEach(off => {
         const repeated = Number(wasInpatientPreviousWeek_(ctx.state,id1,week)) + Number(wasInpatientPreviousWeek_(ctx.state,id2,week));
+        const serviceRepeat = repeatedService(c1,roles[0]) + repeatedService(c2,roles[1]);
         // gap=2 means Inpatient -> OPD/Off -> Inpatient, usually undesirable.
         // Gap=3 is preferable; >=4 has no recency penalty.
         const quickReturn = [c1,c2].reduce((total,c)=>{
@@ -2521,7 +2702,10 @@ function buildSubTeamWeekRows_(ctx) {
         const offToInpatient = [c1,c2].filter(c=>lastRole(c)==='Off-duty').length*13;
         // All returning consultants use the normal inpatient preference.
         const returningRegular = available.filter(c=>returnedFromLeaveThisWeek_(ctx,c));
-        const returnMissed = returningRegular.filter(c=>String(c.ConsultantID)!==id1 && String(c.ConsultantID)!==id2).length;
+        const returnedInpatient = returningRegular.filter(c=>
+          String(c.ConsultantID)===id1 || String(c.ConsultantID)===id2).length;
+        const desiredReturnCount = returningRegular.length ? 1 : 0;
+        const returnMissed = Math.abs(returnedInpatient-desiredReturnCount);
         const offAfterInpatient = off && lastDutyGap(off)===1 ? 34 : 0;
         const offSoonAfterInpatient = off && lastDutyGap(off)===2 ? 5 : 0;
         // Off-duty may be skipped, but not indefinitely without a good reason.
@@ -2548,7 +2732,11 @@ function buildSubTeamWeekRows_(ctx) {
         // Hard priority: avoid avoidable consecutive inpatient assignments,
         // then give returning staff inpatient preference.
         // Sequence, rolling equity, and long-term equity jointly select the rest.
-        const score = [repeated, returnMissed,
+        // Protect inpatient spacing and return-from-leave first. Among
+        // equally safe choices, enforce per-consultant TCU<->EMCU alternation
+        // before optimizing workload totals. Without this explicit priority,
+        // repeated TCU/EMCU assignments can follow a Manual Edit indefinitely.
+        const score = [repeated, returnMissed, serviceRepeat,
           sequenceCost+fairnessCost+recentFairness+offEquityCost, recentFairness, sequenceCost, fairnessCost, offEquityCost];
         options.push({ c1:c1, c2:c2, off:off, score:score,
           key:id1+'|'+id2+'|'+(off?String(off.ConsultantID):'~') });
@@ -2611,10 +2799,13 @@ function buildTeamWeekRows_(ctx) {
   const available = [];
   ctx.consultants.forEach(c => {
     if (isInactiveForWeek_(c, ctx.weekStart, ctx.weekEnd)) inactive.push(c);
+    else if (!isActiveForWeek_(c, ctx.weekStart, ctx.weekEnd)) return;
     else if (isOnLeave_(c.ConsultantID, ctx.weekStart, ctx.weekEnd, ctx.leaves)) leave.push(c);
-    else if (isActiveForWeek_(c, ctx.weekStart, ctx.weekEnd)) available.push(c);
+    else available.push(c);
   });
 
+  beginFairnessCohortWeek_(ctx.state,ctx.team.TeamID,
+    available.concat(leave).map(c=>c.ConsultantID),ctx.weekNo);
   let teamConsultant = null;
   let offConsultant = null;
   let source = 'Auto';
@@ -2633,6 +2824,7 @@ function buildTeamWeekRows_(ctx) {
     } else {
       if (offConsultant && offConsultant.ConsultantID === teamConsultant.ConsultantID) offConsultant = null;
       if (offConsultant && String(offConsultant.CanOffDuty) !== 'Yes') offConsultant = null;
+      if (offConsultant && returnedFromLeaveThisWeek_(ctx,offConsultant)) offConsultant = null;
       if (offConsultant && prevOff && offConsultant.ConsultantID === prevOff) {
         conflicts.push(conflict_(ctx, 'Yellow', 'CONSECUTIVE_OFF_DUTY_BLOCKED', `${offConsultant.Name} was entered for Off-duty two weeks in a row. Off-duty was skipped because this is not allowed.`));
         offConsultant = null;
@@ -2694,6 +2886,7 @@ function chooseWeeklyCombination_(available, state, teamId, ctxForConflict) {
     const offs=[null];
     if(available.length>=3)available.forEach(c=>{
       if(c.ConsultantID===teamCandidate.ConsultantID || String(c.CanOffDuty)!=='Yes' ||
+         (ctxForConflict && returnedFromLeaveThisWeek_(ctxForConflict,c)) ||
          c.ConsultantID===prevOff || !isOffDutyIntervalSafe_(c,state,weekNo))return;
       offs.push(c);
     });
@@ -2702,9 +2895,16 @@ function chooseWeeklyCombination_(available, state, teamId, ctxForConflict) {
       if(available.length>=2 && opd<1)return;
       if(opd>maxOpd)return;
       candidates.push({teamConsultant:teamCandidate,offConsultant:offCandidate,
-        score:scoreWeeklyCombination_(available,teamCandidate,offCandidate,state,teamId,weekNo)});
+        score:scoreWeeklyCombination_(available,teamCandidate,offCandidate,state,teamId,weekNo,ctxForConflict)});
     });
   });
+  // Standard four-consultant teams: prefer the explicit 1 Team + 2 OPD + 1 Off
+  // allocation whenever an eligible Off-duty consultant can satisfy the cooldown.
+  if (available.length === 4 && candidates.some(c=>c.offConsultant)) {
+    for (let i=candidates.length-1; i>=0; i--) {
+      if (!candidates[i].offConsultant) candidates.splice(i,1);
+    }
+  }
   if(!candidates.length){
     if(available.length===1)return {teamConsultant:available[0],offConsultant:null,
       conflicts:[conflict_(ctxForConflict||{weekNo:weekNo,weekStart:new Date(),team:{TeamID:teamId,TeamName:teamId}},
@@ -2722,7 +2922,11 @@ function chooseWeeklyCombination_(available, state, teamId, ctxForConflict) {
   return {teamConsultant:chosen.teamConsultant,offConsultant:chosen.offConsultant,conflicts:conflicts};
 }
 
-function scoreWeeklyCombination_(available, teamConsultant, offConsultant, state, teamId, weekNo) {
+function returnedFromLeaveThisWeekStandard_(state, consultant, weekNo) {
+  return Number((state.lastLeaveWeek||{})[String(consultant.ConsultantID)]||0)===Number(weekNo)-1;
+}
+
+function scoreWeeklyCombination_(available, teamConsultant, offConsultant, state, teamId, weekNo, ctx) {
   let score = 0;
   const assignedRole = {};
   assignedRole[teamConsultant.ConsultantID] = 'Team';
@@ -2732,7 +2936,10 @@ function scoreWeeklyCombination_(available, teamConsultant, offConsultant, state
   });
 
   const prevOff = state.prevOff[teamId] || '';
-  const offEligible = available.filter(c => String(c.CanOffDuty) === 'Yes');
+  const returning=available.filter(c=>ctx ? returnedFromLeaveThisWeek_(ctx,c) : returnedFromLeaveThisWeekStandard_(state,c,weekNo));
+  if (returning.length && !returning.some(c=>String(c.ConsultantID)===String(teamConsultant.ConsultantID))) score+=5000;
+  const offEligible = available.filter(c => String(c.CanOffDuty) === 'Yes' &&
+    !(ctx ? returnedFromLeaveThisWeek_(ctx,c) : returnedFromLeaveThisWeekStandard_(state,c,weekNo)));
   const eligibleNotPrevOff = offEligible.filter(c => c.ConsultantID !== prevOff);
   const dueForOff = eligibleNotPrevOff.filter(c => {
     const lastOffWeek = Number(state.lastOffWeek && state.lastOffWeek[c.ConsultantID] || 0);
@@ -2761,13 +2968,27 @@ function scoreWeeklyCombination_(available, teamConsultant, offConsultant, state
       else score += roleMismatchPenalty_(expected, role);
     }
 
-    // Keep fair distribution of Team and Off-duty over time.
-    // Team count is weighted strongly so a consultant who cannot take Off-duty still gets
-    // inpatient Team roughly every third week in a 3-consultant team, not every other week.
-    if (role === 'Team') score += Number(state.teamCounts[c.ConsultantID] || 0) * 24;
-    if (role === 'Off-duty') score += Number(state.offCounts[c.ConsultantID] || 0) * 12;
+    // Eligibility-adjusted fairness: joining halfway through the period must
+    // not create a fictitious inpatient backlog. Restrict historical counts to
+    // the weeks in which the consultant was actually available to this team.
+    const key=String(teamId)+'|'+String(c.ConsultantID);
+    const actualTeam=cohortMetric_(state,teamId,'standardActualTeam',key)+(role==='Team'?1:0);
+    const expectedTeam=cohortMetric_(state,teamId,'standardExpectedTeam',key)+1/available.length;
+    score += (actualTeam-expectedTeam)*(actualTeam-expectedTeam)*115;
+    // A long uninterrupted OPD streak should not be the default just because
+    // previous OPD was rewarded by the old role-cycle rule.
+    if(role==='OPD') {
+      const streak=Number((state.standardOpdStreak||{})[key]||0);
+      score += Math.pow(Math.max(0,streak-2),2)*65;
+    }
+    if(String(c.CanOffDuty)==='Yes') {
+      const possibleOff=offConsultant ? 1/offEligible.length : 0;
+      const actualOff=cohortMetric_(state,teamId,'standardActualOff',key)+(role==='Off-duty'?1:0);
+      const expectedOff=cohortMetric_(state,teamId,'standardExpectedOff',key)+possibleOff;
+      score += (actualOff-expectedOff)*(actualOff-expectedOff)*35;
+    }
 
-    // A consultant who cannot take Off-duty may do OPD repeatedly; this is intended.
+    // A consultant who cannot take Off-duty must never be selected for it.
     if (String(c.CanOffDuty) !== 'Yes' && role === 'Off-duty') score += 99999;
   });
 
@@ -2787,10 +3008,10 @@ function expectedNextRole_(consultant, lastRole) {
     if (lastRole === 'OPD') return 'Off-duty';
     if (lastRole === 'Off-duty') return 'Team';
   } else {
-    // Consultant who cannot take Off-duty: the Off-duty slot becomes OPD.
-    // OPD may repeat, and the Team assignment is balanced by team-count fairness.
+    // Do not reward repeating OPD indefinitely for consultants unable to take Off.
+    // Their inpatient turn comes from eligibility-adjusted workload fairness.
     if (lastRole === 'Team') return 'OPD';
-    if (lastRole === 'OPD') return 'OPD';
+    if (lastRole === 'OPD') return '';
     if (lastRole === 'Off-duty') return 'OPD';
   }
   return '';
@@ -2849,8 +3070,43 @@ function recordEligibilityChange_(oldConsultant,newConsultant,effective) {
   return ids;
 }
 
+// Staffing-cohort fairness: old workload is real and remains in the history,
+// but its *imbalance* is not a debt to carry from a 3-person rota into a new
+// 5-person or 4-person rota. Off-duty spacing and last clinical roles are NOT reset.
+const FAIRNESS_COHORT_METRICS_ = [
+  'standardActualTeam','standardExpectedTeam','standardActualOff','standardExpectedOff',
+  'scopedTeamCounts','scopedExpectedTeam','scopedSubCounts','scopedExpectedSub',
+  'scopedOffCounts','scopedExpectedOff'
+];
+function beginFairnessCohortWeek_(state, teamId, eligibleIds, weekNo) {
+  const team=String(teamId), ids=[...new Set((eligibleIds||[]).map(String).filter(Boolean))].sort();
+  const signature=ids.join('|');
+  if (!state.fairnessCohorts) state.fairnessCohorts={};
+  const previous=state.fairnessCohorts[team];
+  if (previous && previous.signature===signature) return;
+  const base={};
+  const prefixes=ids.map(id=>team+'|'+id);
+  FAIRNESS_COHORT_METRICS_.forEach(metric=>{
+    const current=state[metric]||{}, snapshot={};
+    Object.keys(current).forEach(key=>{
+      if (prefixes.some(prefix=>key===prefix || key.startsWith(prefix+'|')))
+        snapshot[key]=Number(current[key]||0);
+    });
+    base[metric]=snapshot;
+  });
+  state.fairnessCohorts[team]={signature,firstWeek:Number(weekNo)||0,base};
+  // Recent fairness also belongs to the new cohort. Historical rows and duty
+  // recency are preserved independently for clinical continuity.
+  if (state.subTeamRecentWeeks) state.subTeamRecentWeeks[team]=[];
+}
+function cohortMetric_(state, teamId, metric, key) {
+  const current=Number(((state[metric]||{})[key])||0);
+  const baseline=Number((((((state.fairnessCohorts||{})[String(teamId)]||{}).base||{})[metric]||{})[key])||0);
+  return current-baseline;
+}
+
 function seedStateFromRows_(rows, consultants) {
-  const state = { teamCounts: {}, offCounts: {}, prevTeam: {}, prevOff: {}, lastRole: {}, lastTeamWeek: {}, lastOffWeek: {}, lastLeaveWeek: {}, lastAssignmentWeek: {}, lastOffTeamWeek: {}, subTeamWeeksObserved: {}, subTeamOffWeeks: {}, subTeamRecentWeeks: {}, subCounts: {}, opdCounts: {}, subRoleMap: {}, expectedTeamCounts: {}, expectedSubCounts: {}, expectedOffCounts: {}, scopedTeamCounts: {}, scopedSubCounts: {}, scopedOffCounts: {}, scopedExpectedTeam: {}, scopedExpectedSub: {}, scopedExpectedOff: {}, consultantRoster: {} };
+  const state = { standardActualTeam: {}, standardExpectedTeam: {}, standardOpdStreak: {}, standardActualOff: {}, standardExpectedOff: {}, teamCounts: {}, offCounts: {}, prevTeam: {}, prevOff: {}, lastRole: {}, lastSubTeamRole: {}, lastTeamWeek: {}, lastOffWeek: {}, lastLeaveWeek: {}, lastAssignmentWeek: {}, lastOffTeamWeek: {}, subTeamWeeksObserved: {}, subTeamOffWeeks: {}, subTeamRecentWeeks: {}, subCounts: {}, opdCounts: {}, subRoleMap: {}, expectedTeamCounts: {}, expectedSubCounts: {}, expectedOffCounts: {}, scopedTeamCounts: {}, scopedSubCounts: {}, scopedOffCounts: {}, scopedExpectedTeam: {}, scopedExpectedSub: {}, scopedExpectedOff: {}, consultantRoster: {}, fairnessCohorts: {} };
   state.eligibilityHistory = {};
   eligibilityHistory_().forEach(h=>{const id=String(h.ConsultantID);(state.eligibilityHistory[id]||(state.eligibilityHistory[id]=[])).push(h);});
   getTeams_().forEach(t => { if (isSubTeamConfigured_(t)) state.subRoleMap[t.TeamID] = subTeamNames_(t); });
@@ -2981,8 +3237,8 @@ function subTeamOffEquityCost_(available, chosenOff, state, teamId) {
   const chosen=String(chosenOff.ConsultantID);
   const prior=pool.map(c=>{
     const key=String(teamId)+'|'+String(c.ConsultantID);
-    return {id:String(c.ConsultantID), actual:Number((state.scopedOffCounts||{})[key]||0),
-      expected:Number((state.scopedExpectedOff||{})[key]||0)};
+    return {id:String(c.ConsultantID), actual:cohortMetric_(state,teamId,'scopedOffCounts',key),
+      expected:cohortMetric_(state,teamId,'scopedExpectedOff',key)};
   });
   // Expected Off allocation increases by 1/pool.length for this Off slot.
   // Penalize unequal *deficits*, not unequal historical totals.
@@ -3002,18 +3258,18 @@ function subTeamFairnessCost_(available, selected, state, roles, teamId) {
     const id=String(c.ConsultantID);
     const chosen=(id===String(selected.c1.ConsultantID)||id===String(selected.c2.ConsultantID)) ? 1 : 0;
     const scope=String(teamId)+'|'+id;
-    const actual=Number((state.scopedTeamCounts||{})[scope]||0)+chosen;
-    const expected=Number((state.scopedExpectedTeam||{})[scope]||0)+Number(target.team[id]||0);
+    const actual=cohortMetric_(state,teamId,'scopedTeamCounts',scope)+chosen;
+    const expected=cohortMetric_(state,teamId,'scopedExpectedTeam',scope)+Number(target.team[id]||0);
     inpatient+=(actual-expected)*(actual-expected);
     roles.forEach((role,i)=>{
       const key=id+'|'+role, scoped=String(teamId)+'|'+key;
-      const value=Number((state.scopedSubCounts||{})[scoped]||0)+(String((i===0?selected.c1:selected.c2).ConsultantID)===id?1:0);
-      const aim=Number((state.scopedExpectedSub||{})[scoped]||0)+Number(target.sub[key]||0);
+      const value=cohortMetric_(state,teamId,'scopedSubCounts',scoped)+(String((i===0?selected.c1:selected.c2).ConsultantID)===id?1:0);
+      const aim=cohortMetric_(state,teamId,'scopedExpectedSub',scoped)+Number(target.sub[key]||0);
       services+=(value-aim)*(value-aim);
     });
     if(String(c.CanOffDuty)==='Yes'){
-      const actualOff=Number((state.scopedOffCounts||{})[scope]||0)+(selected.off&&String(selected.off.ConsultantID)===id?1:0);
-      const targetOff=Number((state.scopedExpectedOff||{})[scope]||0)+Number(target.off[id]||0);
+      const actualOff=cohortMetric_(state,teamId,'scopedOffCounts',scope)+(selected.off&&String(selected.off.ConsultantID)===id?1:0);
+      const targetOff=cohortMetric_(state,teamId,'scopedExpectedOff',scope)+Number(target.off[id]||0);
       off+=(actualOff-targetOff)*(actualOff-targetOff);
     }
   });
@@ -3023,6 +3279,7 @@ function subTeamFairnessCost_(available, selected, state, roles, teamId) {
 
 function updateStateFromWeekRows_(state, rows) {
   if (!state.lastRole) state.lastRole = {};
+  if (!state.lastSubTeamRole) state.lastSubTeamRole = {};
   if (!state.lastTeamWeek) state.lastTeamWeek = {};
   if (!state.lastOffWeek) state.lastOffWeek = {};
   if (!state.lastLeaveWeek) state.lastLeaveWeek = {};
@@ -3034,6 +3291,8 @@ function updateStateFromWeekRows_(state, rows) {
   if (!state.expectedSubCounts) state.expectedSubCounts = {};
   if (!state.expectedOffCounts) state.expectedOffCounts = {};
   if (!state.consultantRoster) state.consultantRoster = {};
+  for (const k of ['standardActualTeam','standardExpectedTeam','standardOpdStreak','standardActualOff','standardExpectedOff'])
+    if (!state[k]) state[k] = {};
   for (const k of ['scopedTeamCounts','scopedSubCounts','scopedOffCounts','scopedExpectedTeam','scopedExpectedSub','scopedExpectedOff'])
     if (!state[k]) state[k] = {};
   if (!rows || !rows.length) return;
@@ -3052,8 +3311,45 @@ function updateStateFromWeekRows_(state, rows) {
     return String(a).localeCompare(String(b));
   }).forEach(key => {
     const group = groups[key];
+    const historicalTeamId=String(group[0].TeamID||'');
+    const inpatientRoles=(state.subRoleMap||{})[historicalTeamId]||[];
+    const present=group.filter(r=>!isManualCoverId_(r.ConsultantID) &&
+      ['Team','OPD','Reserve','Off-duty','Leave'].concat(inpatientRoles).includes(String(r.AssignmentPlace)))
+      .map(r=>String(r.ConsultantID));
+    beginFairnessCohortWeek_(state,historicalTeamId,present,group[0].WeekNo);
     addSubTeamOpportunity_(state, group);
     const teamId = String(group[0].TeamID || '');
+    // Snapshot fair opportunities from the assignments that were actually
+    // eligible in this historic week. Do not retroactively count weeks before
+    // a consultant joined, or weeks on Leave/Inactive, against them.
+    if (group.some(r=>r.AssignmentPlace==='Team')) {
+      const working = group.filter(r=>['Team','OPD','Off-duty','Reserve'].includes(r.AssignmentPlace) && !isManualCoverId_(r.ConsultantID));
+      const byId = {};
+      working.forEach(r=>{ byId[String(r.ConsultantID)] = r; });
+      const ids = Object.keys(byId);
+      ids.forEach(id=>{
+        const key=teamId+'|'+id, role=byId[id].AssignmentPlace;
+        state.standardExpectedTeam[key]=Number(state.standardExpectedTeam[key]||0)+1/ids.length;
+        if(role==='Team') state.standardActualTeam[key]=Number(state.standardActualTeam[key]||0)+1;
+        state.standardOpdStreak[key]=(role==='OPD'||role==='Reserve') ? Number(state.standardOpdStreak[key]||0)+1 : 0;
+      });
+      const offIds=ids.filter(id=>{
+        const c=state.consultantRoster[id]||{ConsultantID:id,CanOffDuty:'Yes'};
+        const historic=consultantAtWeek_(state,c,group[0].WeekStart);
+        return String(historic.CanOffDuty)==='Yes';
+      });
+      if (offIds.length && working.some(r=>r.AssignmentPlace==='Off-duty')) {
+        offIds.forEach(id=>{
+          const key=teamId+'|'+id;
+          state.standardExpectedOff[key]=Number(state.standardExpectedOff[key]||0)+1/offIds.length;
+        });
+      }
+      working.filter(r=>r.AssignmentPlace==='Off-duty').forEach(r=>{
+        const key=teamId+'|'+String(r.ConsultantID);
+        state.standardActualOff[key]=Number(state.standardActualOff[key]||0)+1;
+      });
+    }
+
     let weekTeam = '';
     let weekOff = '';
 
@@ -3062,6 +3358,10 @@ function updateStateFromWeekRows_(state, rows) {
       if (isManualCoverId_(r.ConsultantID)) return;
       if (r.AssignmentPlace === 'Team' || ((state.subRoleMap && state.subRoleMap[teamId]) || []).indexOf(r.AssignmentPlace) !== -1) {
         if (r.AssignmentPlace !== 'Team') {
+          // Preserve the last actual sub-team assignment, even when this week
+          // was manually edited. This is NOT reset by intervening OPD, Off,
+          // leave or a temporarily deactivated parent-team rota.
+          state.lastSubTeamRole[teamId+'|'+String(r.ConsultantID)] = String(r.AssignmentPlace);
           if (!state.subCounts) state.subCounts = {};
           const key = r.ConsultantID + '|' + r.AssignmentPlace;
           state.subCounts[key] = Number(state.subCounts[key] || 0) + 1;
@@ -3128,7 +3428,8 @@ function getRotaWeekView_(weekNo) {
     }
     const team = teams[r.TeamID] || { TeamName: r.TeamID, ColorHex: '#0f172a' };
     if (!weekObj.teams[r.TeamID]) {
-      weekObj.teams[r.TeamID] = { teamId: r.TeamID, teamName: team.TeamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+      weekObj.teams[r.TeamID] = { teamId: r.TeamID, teamName: team.TeamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]),
+        scheduledStandardFrom: (!isSubTeamActiveForWeek_(team, r.WeekStart) ? String(team.SubTeamUntil || '').slice(0,10) : ''), scheduledSubTeamsFrom: String(team.SubTeamResumeFrom || '').slice(0,10), weekStart: String(r.WeekStart || '').slice(0,10), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
     }
     const person = personFromAssignment_(r, consultants);
     if (!weekObj.teams[r.TeamID].subTeamNames.length) weekObj.teams[r.TeamID].subTeamNames = subTeamNamesForView_(team, r.WeekStart, [r]);
@@ -3174,8 +3475,17 @@ function getRotaWeekTeamView_(weekNo, teamId) {
   selected.subTeamConfigured = isSubTeamConfigured_(config);
   selected.subTeamActivated = isSubTeamActiveForWeek_(config, date);
   selected.subTeamEffectiveFrom = (config && config.SubTeamFrom) || '';
-  if (selected.subTeamConfigured) {
+  selected.subTeamEffectiveUntil = (config && config.SubTeamUntil) || '';
+  selected.subTeamResumeFrom = (config && config.SubTeamResumeFrom) || '';
+  if (selected.subTeamActivated) {
     selected.subTeamNames = subTeamNames_(config);
+    selected.subTeamNames.forEach(role => { if (!selected[role]) selected[role] = []; });
+  } else if (selected.subTeamConfigured) {
+    const stopped = !!selected.subTeamEffectiveUntil && iso_(date) >= String(selected.subTeamEffectiveUntil).slice(0,10) &&
+      (!selected.subTeamResumeFrom || iso_(date) < String(selected.subTeamResumeFrom).slice(0,10));
+    // Before activation show configured fields with the existing activation warning.
+    // After deactivation show the Standard Team editor, preserving old published data.
+    selected.subTeamNames = stopped ? [] : subTeamNames_(config);
     selected.subTeamNames.forEach(role => { if (!selected[role]) selected[role] = []; });
   }
   return Object.assign({}, full, {subTeamEditorVersion:3});
@@ -3196,7 +3506,12 @@ function getLatestRotaView_() {
     const team = teams[r.TeamID] || { TeamName: r.TeamID, ColorHex: '#0f172a' };
     const teamName = team.TeamName;
     if (!weekMap[weekKey].teams[r.TeamID]) {
-      weekMap[weekKey].teams[r.TeamID] = { teamId: r.TeamID, teamName: teamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+      weekMap[weekKey].teams[r.TeamID] = { teamId: r.TeamID, teamName: teamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]),
+        scheduledStandardFrom: (!isSubTeamActiveForWeek_(team, r.WeekStart) ? String(team.SubTeamUntil || '').slice(0,10) : ''), scheduledSubTeamsFrom: String(team.SubTeamResumeFrom || '').slice(0,10), weekStart: String(r.WeekStart || '').slice(0,10), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+    }
+    if (hidePublicInactiveAssignment_(r, consultants)) {
+      if (String(r.AssignmentPlace) !== 'Inactive') weekMap[weekKey].teams[r.TeamID].hasHiddenInactiveAssignments = true;
+      return;
     }
     const person = personFromAssignment_(r, consultants);
     if (!weekMap[weekKey].teams[r.TeamID].subTeamNames.length) weekMap[weekKey].teams[r.TeamID].subTeamNames = subTeamNamesForView_(team, r.WeekStart, [r]);
@@ -3253,7 +3568,12 @@ function getLatestRotaViewForWeekRange_(latest, startWeek, endWeek) {
     const team = teams[r.TeamID] || { TeamName: r.TeamID, ColorHex: '#0f172a' };
     const teamName = team.TeamName;
     if (!weekMap[weekKey].teams[r.TeamID]) {
-      weekMap[weekKey].teams[r.TeamID] = { teamId: r.TeamID, teamName: teamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+      weekMap[weekKey].teams[r.TeamID] = { teamId: r.TeamID, teamName: teamName, teamColor: normalizeHexColor_(team.ColorHex || '#0f172a'), subTeamNames: subTeamNamesForView_(team, r.WeekStart, [r]),
+        scheduledStandardFrom: (!isSubTeamActiveForWeek_(team, r.WeekStart) ? String(team.SubTeamUntil || '').slice(0,10) : ''), scheduledSubTeamsFrom: String(team.SubTeamResumeFrom || '').slice(0,10), weekStart: String(r.WeekStart || '').slice(0,10), Team: [], OPD: [], 'Off-duty': [], Reserve: [], Leave: [], Inactive: [] };
+    }
+    if (hidePublicInactiveAssignment_(r, consultants)) {
+      if (String(r.AssignmentPlace) !== 'Inactive') weekMap[weekKey].teams[r.TeamID].hasHiddenInactiveAssignments = true;
+      return;
     }
     const person = personFromAssignment_(r, consultants);
     if (!weekMap[weekKey].teams[r.TeamID].subTeamNames.length) weekMap[weekKey].teams[r.TeamID].subTeamNames = subTeamNamesForView_(team, r.WeekStart, [r]);
@@ -3796,9 +4116,9 @@ function trashAssignmentArchives_() {
   return trashed;
 }
 
-function getRotaVersions_() {
+function getRotaVersions_(knownPeriods) {
   const periods = {};
-  getRotaPeriods_().forEach(p => periods[String(p.PeriodID)] = p);
+  (knownPeriods || getRotaPeriods_()).forEach(p => periods[String(p.PeriodID)] = p);
   const versions = readObjects_(SHEETS.RotaVersions).map(v => {
     const p = periods[String(v.PeriodID || '')];
     return Object.assign({}, v, {
@@ -3833,6 +4153,7 @@ function deleteAllDataRows_(sheetName) {
 
 
 function rewriteSheetObjects_(sheetName, objects) {
+  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
   const lastRow = sh.getLastRow();
@@ -3840,6 +4161,7 @@ function rewriteSheetObjects_(sheetName, objects) {
   if (objects && objects.length) {
     const values = objects.map(obj => headers.map(h => obj[h] === undefined ? '' : obj[h]));
     sh.getRange(2, 1, values.length, headers.length).setValues(values);
+    perfSheetWrite_(values.length);
   }
   SpreadsheetApp.flush();
   if (sheetName === SHEETS.RotaAssignments) clearAssignmentStorageSummaryCache_();
@@ -3849,10 +4171,30 @@ function rewriteSheetObjects_(sheetName, objects) {
 function removeVersionAssignmentsFromLive_(versionId) {
   const all = readObjects_(SHEETS.RotaAssignments);
   const id = String(versionId || '');
-  const keep = all.filter(r => String(r.VersionID || '') !== id);
-  const removed = all.length - keep.length;
-  if (removed) rewriteSheetObjects_(SHEETS.RotaAssignments, keep);
-  return removed;
+  const matching = [];
+  all.forEach((row, idx) => { if (String(row.VersionID || '') === id) matching.push(idx); });
+  if (!matching.length) return 0;
+  // appendRows_ writes complete versions together, so normally only one contiguous
+  // run needs removal. Preserve the original rewrite fallback for mixed historical rows.
+  const contiguous = matching[matching.length - 1] - matching[0] + 1 === matching.length;
+  const sh = ensureSheet_(SHEETS.RotaAssignments, HEADERS.RotaAssignments);
+  // An older Sheet with blank spacer rows cannot use index-based deletion.
+  // The rewrite fallback handles it without risking a wrong physical row.
+  if (contiguous && all.length === sh.getLastRow() - 1) {
+    const startRow = matching[0] + 2;
+    // Sheets requires one spare non-frozen row when removing all data rows.
+    if (sh.getMaxRows() <= matching.length + 1 && matching.length === all.length) {
+      sh.insertRowAfter(sh.getMaxRows());
+    }
+    sh.deleteRows(startRow, matching.length);
+    perfSheetWrite_(matching.length);
+    clearAssignmentStorageSummaryCache_();
+    invalidatePublicStartupCache_();
+  } else {
+    const keep = all.filter(r => String(r.VersionID || '') !== id);
+    rewriteSheetObjects_(SHEETS.RotaAssignments, keep);
+  }
+  return matching.length;
 }
 
 function restoreOfficialAfterRollback_(version) {
@@ -3864,26 +4206,37 @@ function restoreOfficialAfterRollback_(version) {
 function deleteRowsWhere_(sheetName, predicate) {
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const values = sh.getDataRange().getValues();
+  perfSheetRead_(values.length > 0 ? values.length - 1 : 0);
   if (values.length < 2) return 0;
   const headers = values[0].map(String);
-  let deleted = 0;
-  for (let i = values.length - 1; i >= 1; i--) {
+  const matching = [];
+  for (let i = 1; i < values.length; i++) {
     const row = {};
     headers.forEach((h, idx) => row[h] = normalizeCell_(values[i][idx]));
-    if (predicate(row)) {
-      sh.deleteRow(i + 1);
-      deleted++;
-    }
+    if (predicate(row)) matching.push(i + 1);
   }
-  if (deleted && sheetAffectsPublicStartup_(sheetName)) invalidatePublicStartupCache_();
-  return deleted;
+  if (!matching.length) return 0;
+  if (matching.length === values.length - 1 && sh.getMaxRows() <= values.length) {
+    sh.insertRowAfter(sh.getMaxRows());
+  }
+  // Delete bottom-up in contiguous groups to avoid one RPC per assignment.
+  for (let end = matching.length - 1; end >= 0;) {
+    let begin = end;
+    while (begin > 0 && matching[begin - 1] + 1 === matching[begin]) begin--;
+    sh.deleteRows(matching[begin], end - begin + 1);
+    end = begin - 1;
+  }
+  perfSheetWrite_(matching.length);
+  if (sheetName === SHEETS.RotaAssignments) clearAssignmentStorageSummaryCache_();
+  if (sheetAffectsPublicStartup_(sheetName)) invalidatePublicStartupCache_();
+  return matching.length;
 }
 
-function getLatestConflicts_() {
-  const latest = getLatestVersion_();
+function getLatestConflicts_(knownLatest, knownTeams) {
+  const latest = knownLatest || getLatestVersion_();
   if (!latest) return [];
-  const teams = teamMap_();
-  const order = teamSortOrderMap_();
+  const teams = knownTeams ? knownTeams.reduce((m,t) => { m[String(t.TeamID)] = t; return m; }, {}) : teamMap_();
+  const order = knownTeams ? knownTeams.reduce((m,t,i) => { m[String(t.TeamID)] = i + 1; return m; }, {}) : teamSortOrderMap_();
   return readObjects_(SHEETS.ConflictLog)
     .filter(c => c.VersionID === latest.VersionID)
     .filter(c => !isAdministrativeNonConflict_(c))
@@ -4026,22 +4379,28 @@ function getDb_() {
 }
 
 function ensureSheet_(name, headers) {
+  if (REQUEST_SHEET_MEMO_ && REQUEST_SHEET_MEMO_[name]) return REQUEST_SHEET_MEMO_[name];
   const ss = getDb_();
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
+  if (API_PERF_CONTEXT_) API_PERF_CONTEXT_.schemaChecks++;
   if (sh.getLastRow() === 0) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (API_PERF_CONTEXT_) API_PERF_CONTEXT_.sheetWrites++;
     sh.setFrozenRows(1);
     sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#0f172a').setFontColor('#ffffff');
     sh.autoResizeColumns(1, headers.length);
   } else {
     const current = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), headers.length)).getValues()[0];
+    perfSheetRead_(1);
     const missing = headers.filter(h => current.indexOf(h) === -1);
     if (missing.length) {
       sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]);
+      perfSheetWrite_(1);
       sh.autoResizeColumns(1, sh.getLastColumn());
     }
   }
+  if (REQUEST_SHEET_MEMO_) REQUEST_SHEET_MEMO_[name] = sh;
   return sh;
 }
 
@@ -4088,9 +4447,6 @@ function getAdminUsersRaw_() {
   return readObjects_(SHEETS.AdminUsers);
 }
 
-function getAdminUsers_() {
-  return getAdminUsersRaw_();
-}
 
 function getPublicAdminUsers_() {
   return getAdminUsersRaw_()
@@ -4204,6 +4560,11 @@ function removeAdminSession_(token) {
 }
 
 function cleanupExpiredAdminSessions_() {
+  // Expiry is checked on every authenticated request. Garbage-collecting ALL
+  // Script Properties on every login adds unnecessary synchronous I/O.
+  const cache = CacheService.getScriptCache();
+  const marker = 'adminSessionCleanup_v3_7';
+  if (cache.get(marker) === '1') return;
   const props = PropertiesService.getScriptProperties();
   const all = props.getProperties();
   const now = Date.now();
@@ -4213,6 +4574,7 @@ function cleanupExpiredAdminSessions_() {
       if (!payload.expiresAtEpoch || Number(payload.expiresAtEpoch) <= now) props.deleteProperty(k);
     } catch (_) { props.deleteProperty(k); }
   });
+  cache.put(marker, '1', 900);
 }
 
 
@@ -4224,6 +4586,7 @@ function createAdminSession_(user) {
     userId: String(user.UserID || ''),
     authVersion: Number(user.AuthVersion || 1),
     issuedAtEpoch: nowEpoch,
+    lastPersistedAtEpoch: nowEpoch,
     lastSeenAtEpoch: nowEpoch,
     expiresAtEpoch: nowEpoch + (21600 * 1000)
   };
@@ -4326,14 +4689,24 @@ function authenticateAdmin_(sessionToken) {
   const nowEpoch = Date.now();
   payload.lastSeenAtEpoch = nowEpoch;
   payload.expiresAtEpoch = nowEpoch + (21600 * 1000);
-  raw = JSON.stringify(payload);
-  cache.put(cacheKey, raw, 21600);
-  properties.setProperty(propertyKey, raw);
+  // Cache is refreshed on every request. Persist the durable fallback only
+  // once every three minutes to avoid a slow Properties write on every click.
+  const persist=nowEpoch-Number(payload.lastPersistedAtEpoch||payload.issuedAtEpoch||0)>=180000;
+  if(persist) payload.lastPersistedAtEpoch=nowEpoch;
+  raw=JSON.stringify(payload);
+  cache.put(cacheKey,raw,21600);
+  if(persist) properties.setProperty(propertyKey,raw);
   return sessionFromUser_(user);
 }
 
 function requireAnyAdmin_(sessionToken) {
   return authenticateAdmin_(sessionToken);
+}
+
+// Existing frontend restores its session through this endpoint after a reload.
+// This only verifies the token; it does not change administrator state.
+function getAdminSession(sessionToken) {
+  return requireAnyAdmin_(sessionToken);
 }
 
 // Name retained for compatibility with existing server functions; argument is now a session token.
@@ -4393,17 +4766,25 @@ function getAuditLog(adminPin, limit) {
 }
 
 function readObjects_(sheetName) {
+  if (ADMIN_READ_MEMO_ && Object.prototype.hasOwnProperty.call(ADMIN_READ_MEMO_, sheetName)) {
+    return ADMIN_READ_MEMO_[sheetName];
+  }
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const values = sh.getDataRange().getValues();
-  if (values.length < 2) return [];
-  const headers = values[0].map(String);
-  return values.slice(1)
-    .filter(row => row.some(v => v !== '' && v !== null))
-    .map(row => {
-      const obj = {};
-      headers.forEach((h, i) => obj[h] = normalizeCell_(row[i]));
-      return obj;
-    });
+  perfSheetRead_(values.length > 0 ? values.length - 1 : 0);
+  let result = [];
+  if (values.length >= 2) {
+    const headers = values[0].map(String);
+    result = values.slice(1)
+      .filter(row => row.some(v => v !== '' && v !== null))
+      .map(row => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = normalizeCell_(row[i]));
+        return obj;
+      });
+  }
+  if (ADMIN_READ_MEMO_) ADMIN_READ_MEMO_[sheetName] = result;
+  return result;
 }
 
 function appendObject_(sheetName, obj) {
@@ -4412,6 +4793,7 @@ function appendObject_(sheetName, obj) {
 
 function appendRows_(sheetName, objects) {
   if (!objects || !objects.length) return;
+  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   let prepared = objects;
   if (sheetName === SHEETS.RotaAssignments) {
     const versionIds = {};
@@ -4426,8 +4808,10 @@ function appendRows_(sheetName, objects) {
   }
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  perfSheetRead_(1);
   const rows = prepared.map(obj => headers.map(h => obj[h] === undefined ? '' : obj[h]));
   sh.getRange(sh.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+  perfSheetWrite_(rows.length);
   if (sheetAffectsPublicStartup_(sheetName)) invalidatePublicStartupCache_();
   if (sheetName === SHEETS.RotaAssignments) {
     clearAssignmentStorageSummaryCache_();
@@ -4444,22 +4828,50 @@ function appendRows_(sheetName, objects) {
 
 function updateRow_(sheetName, idHeader, idValue, patch) {
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
-  const values = sh.getDataRange().getValues();
-  if (values.length < 2) throw new Error(`No rows in ${sheetName}.`);
-  const headers = values[0].map(String);
-  const idCol = headers.indexOf(idHeader);
-  if (idCol === -1) throw new Error(`${idHeader} not found in ${sheetName}.`);
-  const rowIndex = values.findIndex((row, idx) => idx > 0 && String(row[idCol]) === String(idValue));
-  if (rowIndex === -1) throw new Error(`Row ${idValue} not found in ${sheetName}.`);
-  const rowValues = values[rowIndex].slice();
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) throw new Error(`No rows in ${sheetName}.`);
+  const lastCol = sh.getLastColumn();
+  let targetRow, headers, rowValues;
+  if (lastRow > 150) {
+    // For large sheets, Google Sheets searches the identifier column on the server
+    // instead of transferring every column/row to Apps Script for one-row updates.
+    headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+    perfSheetRead_(1);
+    const idCol = headers.indexOf(idHeader);
+    if (idCol < 0) throw new Error(`${idHeader} not found in ${sheetName}.`);
+    const match = sh.getRange(2, idCol + 1, lastRow - 1, 1)
+      .createTextFinder(String(idValue)).useRegularExpression(false)
+      .matchEntireCell(true).matchCase(true).findNext();
+    if (API_PERF_CONTEXT_) API_PERF_CONTEXT_.rowFinds++;
+    if (!match) throw new Error(`Row ${idValue} not found in ${sheetName}.`);
+    targetRow = match.getRow();
+    rowValues = sh.getRange(targetRow, 1, 1, headers.length).getValues()[0];
+    perfSheetRead_(1);
+    // TextFinder may encounter a string-representation mismatch for numeric keys.
+    if (String(rowValues[idCol]) !== String(idValue)) throw new Error(`Row ${idValue} not found in ${sheetName}.`);
+  } else {
+    // On small sheets one bulk read is generally cheaper than multiple RPCs.
+    const values = sh.getDataRange().getValues();
+    perfSheetRead_(values.length > 0 ? values.length - 1 : 0);
+    headers = values[0].map(String);
+    const idCol = headers.indexOf(idHeader);
+    if (idCol < 0) throw new Error(`${idHeader} not found in ${sheetName}.`);
+    const idx = values.findIndex((row, index) => index > 0 && String(row[idCol]) === String(idValue));
+    if (idx < 0) throw new Error(`Row ${idValue} not found in ${sheetName}.`);
+    targetRow = idx + 1;
+    rowValues = values[idx].slice();
+  }
   Object.keys(patch).forEach(key => {
     const col = headers.indexOf(key);
     if (col !== -1) rowValues[col] = patch[key];
   });
-  sh.getRange(rowIndex + 1, 1, 1, headers.length).setValues([rowValues]);
+  sh.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  perfSheetWrite_(1);
+  // An authenticated admin read memo may exist within this request. A write
+  // invalidates that sheet snapshot so follow-on reads see the latest data.
+  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   if (sheetAffectsPublicStartup_(sheetName)) invalidatePublicStartupCache_();
 }
-
 
 function normalizeHexColor_(color) {
   let value = String(color || '').trim();

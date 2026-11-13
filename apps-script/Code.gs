@@ -8,7 +8,7 @@
 const APP = {
   timezone: 'Asia/Riyadh',
   title: 'CTU ROTA',
-  version: '3.11.0-rc22'
+  version: '3.12.0-rc1'
 };
 
 const SHEETS = {
@@ -160,6 +160,7 @@ const API_WHITELIST_ = {
   getLeaveRequestsForConsultant: getLeaveRequestsForConsultant,
   updateLeaveRequest: updateLeaveRequest,
   previewLeaveImpact: previewLeaveImpact,
+  previewLeaveWhatIf: previewLeaveWhatIf,
   approveLeave: approveLeave,
   amendApprovedLeave: amendApprovedLeave,
   cancelApprovedLeave: cancelApprovedLeave,
@@ -215,7 +216,7 @@ function setupDatabase() {
   return { ok: true, message: 'Database sheets are ready.', sheets: Object.values(SHEETS), url: ss.getUrl() };
 }
 
-const PUBLIC_STARTUP_CACHE_BASE_ = 'publicStartupPayload_v3_10_reactivate';
+const PUBLIC_STARTUP_CACHE_BASE_ = 'publicStartupPayload_v3_12';
 const PUBLIC_STARTUP_CACHE_SECONDS_ = 21600;
 const PUBLIC_STARTUP_CACHE_CHUNK_SIZE_ = 78000;
 
@@ -1495,10 +1496,133 @@ function previewLeaveImpact(adminPin, leaveId) {
     const level = deriveImpactLevel_(conflicts, leave, latest);
     const summary = summarizeImpact_(level, conflicts, leave, latest);
     updateRow_(SHEETS.LeaveRequests, 'LeaveID', leaveId, { ImpactStatus: level, ImpactSummary: summary });
-    return { status: level, level: level, summary: summary, conflicts: conflicts.slice(0, 20), preview: groupRowsForTeamPreview_(previewRows) };
+    return { status: level, level: level, summary: summary, conflicts: conflicts.slice(0, 20), preview: groupRowsForTeamPreview_(previewRows),
+      outlook: leaveStaffingOutlook_(simulation, latest, leave, affectedWeekStart) };
   } finally {
     lock.releaseLock();
   }
+}
+
+// Read-only "what if" check: shows how the current official rota would change if a
+// consultant took leave on the given dates. It creates no leave request, writes nothing
+// to any sheet and publishes nothing. The recalculation starts where a real approval
+// would start (never before the next unstarted week).
+function previewLeaveWhatIf(adminToken, data) {
+  return withAdminReadMemo_(function() {
+    data = data || {};
+    const consultant = getConsultants_().find(c => String(c.ConsultantID) === String(data.ConsultantID || '').trim());
+    if (!consultant) throw new Error('Select a consultant.');
+    requireLeaveAdmin_(adminToken, { TeamID: consultant.TeamID });
+    const startText = String(data.StartDate || '').trim().slice(0, 10), endText = String(data.EndDate || '').trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startText) || !/^\d{4}-\d{2}-\d{2}$/.test(endText)) throw new Error('Enter a start date and an end date.');
+    const leaveStart = toDate_(startText), leaveEnd = toDate_(endText);
+    if (iso_(leaveStart) !== startText || iso_(leaveEnd) !== endText) throw new Error('The dates are not valid.');
+    if (leaveEnd < leaveStart) throw new Error('Leave end date cannot be before start date.');
+    const leave = { LeaveID: 'WHATIF', ConsultantID: consultant.ConsultantID, TeamID: consultant.TeamID,
+      StartDate: startText, EndDate: endText, Status: 'Approved' };
+    const latest = getLatestVersion_();
+    const nothing = (level, summary) => ({ status: level, level: level, summary: summary, conflicts: [], preview: [], outlook: null, whatIf: true });
+    if (!latest) return nothing('Info', 'There is no generated rota yet, so there is nothing to compare against.');
+    const start = toDate_(latest.StartDate), weeks = Number(latest.Weeks || 52), currentEnd = toDate_(latest.EndDate);
+    if (leaveStart > currentEnd) return nothing('Info', 'These dates are after the current rota period, so the current rota would not change.');
+    const safeStart = addDays_(startOfWeekSunday_(new Date()), 7);
+    const requested = startOfWeekSunday_(leaveStart < start ? start : leaveStart);
+    const effective = safeStart > requested ? safeStart : requested;
+    if (effective > currentEnd || leaveEnd < effective) return nothing('Info', 'These dates only touch weeks that have already started. Published weeks are not recalculated automatically; use Manual Edit for the current week.');
+    const tempLeaves = getApprovedLeaves_().concat([leave]);
+    const simulation = simulateAmendment_(latest, effective, tempLeaves, null, [String(consultant.TeamID)]);
+    const fromWeek = Math.max(1, getWeekNoForDate_(start, effective, weeks));
+    const outlook = leaveStaffingOutlook_(simulation, latest, leave, fromWeek);
+    const conflicts = simulation.conflicts.filter(c => String(c.TeamID) === String(consultant.TeamID) &&
+      Number(c.WeekNo) >= fromWeek && Number(c.WeekNo) <= outlook.toWeek);
+    const level = deriveImpactLevel_(conflicts, leave, latest);
+    const previewRows = simulation.rows.filter(r => String(r.TeamID) === String(consultant.TeamID) &&
+      Number(r.WeekNo) >= fromWeek && Number(r.WeekNo) <= outlook.toWeek);
+    return { status: level, level: level, whatIf: true,
+      summary: 'What-if only: nothing was saved. ' + consultant.Name + ' on leave ' + startText + ' to ' + endText + '.',
+      conflicts: conflicts.slice(0, 20), preview: groupRowsForTeamPreview_(previewRows), outlook: outlook };
+  });
+}
+
+// Plain-language staffing picture for a simulated leave: for each week from the first
+// recalculated week until the week after the leave ends, how many consultants remain,
+// who works inpatient in consecutive weeks, and whether OPD or the Off-duty reserve is
+// empty. Pure calculation over simulation rows; it never reads or writes a sheet itself.
+function leaveStaffingOutlook_(simulation, latest, leave, fromWeekNo) {
+  const teamId = String(leave.TeamID), totalWeeks = Number(latest.Weeks || 52), rotaStart = toDate_(latest.StartDate);
+  const leaveEndWeek = Math.max(1, getWeekNoForDate_(rotaStart, toDate_(leave.EndDate), totalWeeks));
+  const fromWeek = Math.max(1, Number(fromWeekNo || 1));
+  // Show at most 12 weeks, always including the return week when it is inside the rota.
+  const toWeek = Math.min(totalWeeks, Math.max(fromWeek, Math.min(leaveEndWeek + 1, fromWeek + 11)));
+  const consultants = consultantMap_();
+  const nameOf = id => { const c = consultants[String(id)]; return c ? c.Name : String(id); };
+  const team = getTeams_().find(t => String(t.TeamID) === teamId);
+  // Inpatient = the parent 'Team' post or a registered sub-team service. Any other
+  // label (e.g. the retired 'Reserve') is neither inpatient nor OPD/Off-duty.
+  const inpatientPlaces = ['Team', 'TCU', 'EMCU'].concat(isSubTeamConfigured_(team) ? subTeamNames_(team) : []);
+  const byWeek = {};
+  (simulation.rows || []).forEach(r => {
+    if (String(r.TeamID) !== teamId) return;
+    const w = Number(r.WeekNo);
+    if (w < fromWeek - 1 || w > toWeek) return;
+    if (!byWeek[w]) byWeek[w] = { weekNo: w, weekStart: String(r.WeekStart).slice(0, 10), weekEnd: String(r.WeekEnd).slice(0, 10), inpatient: [], opd: [], off: [], leave: [] };
+    const place = String(r.AssignmentPlace || ''), id = String(r.ConsultantID || '');
+    if (place === 'Leave') { byWeek[w].leave.push(id); return; }
+    if (place === 'Inactive' || isManualCoverId_(id)) return;
+    if (place === 'OPD') byWeek[w].opd.push(id);
+    else if (place === 'Off-duty') byWeek[w].off.push(id);
+    else if (inpatientPlaces.indexOf(place) !== -1) byWeek[w].inpatient.push(id);
+  });
+  const uncoveredByWeek = {};
+  (simulation.conflicts || []).forEach(c => {
+    if (String(c.TeamID) === teamId && String(c.Level) === 'Red') (uncoveredByWeek[Number(c.WeekNo)] = uncoveredByWeek[Number(c.WeekNo)] || []).push(String(c.Message || ''));
+  });
+  const weeksOut = [];
+  for (let w = fromWeek; w <= toWeek; w++) {
+    const cur = byWeek[w]; if (!cur) continue;
+    const prev = byWeek[w - 1];
+    const backToBack = prev ? cur.inpatient.filter(id => prev.inpatient.indexOf(id) !== -1) : [];
+    weeksOut.push({ weekNo: w, weekStart: cur.weekStart, weekEnd: cur.weekEnd,
+      available: cur.inpatient.length + cur.opd.length + cur.off.length,
+      onLeave: cur.leave.map(nameOf), inpatient: cur.inpatient.map(nameOf), backToBack: backToBack.map(nameOf),
+      opdCount: cur.opd.length, offDuty: cur.off.map(nameOf), uncovered: uncoveredByWeek[w] || [] });
+  }
+  const span = list => {
+    // Collapses consecutive week numbers into "Week 25" / "Weeks 25-26" with dates.
+    const out = []; let i = 0;
+    while (i < list.length) {
+      let j = i; while (j + 1 < list.length && list[j + 1].weekNo === list[j].weekNo + 1) j++;
+      out.push((i === j ? 'Week ' + list[i].weekNo : 'Weeks ' + list[i].weekNo + '-' + list[j].weekNo) +
+        ' (' + dateOnlyNice_(list[i].weekStart) + ' - ' + dateOnlyNice_(list[j].weekEnd) + ')');
+      i = j + 1;
+    }
+    return out.join(', ');
+  };
+  const lines = [];
+  const who = nameOf(leave.ConsultantID);
+  // Only the weeks this consultant is away; other people's leave is context, not a consequence.
+  const leaveWeeks = weeksOut.filter(x => x.onLeave.indexOf(who) !== -1);
+  const uncovered = weeksOut.filter(x => x.uncovered.length);
+  if (uncovered.length) lines.push({ tone: 'bad', text: span(uncovered) + ': an inpatient post would be UNCOVERED. ' + uncovered[0].uncovered[0] });
+  const two = leaveWeeks.filter(x => x.available <= 2 && !x.uncovered.length);
+  if (two.length) lines.push({ tone: 'bad', text: span(two) + ': only ' + Math.min.apply(null, two.map(x => x.available)) +
+    ' consultant(s) left. Everyone available works inpatient every week, with no OPD and no Off-duty reserve.' });
+  const three = leaveWeeks.filter(x => x.available === 3);
+  if (three.length) lines.push({ tone: 'warn', text: span(three) + ': 3 consultants available.' });
+  const b2bWeeks = {};
+  weeksOut.forEach(x => x.backToBack.forEach(n => (b2bWeeks[n] = b2bWeeks[n] || []).push(x.weekNo)));
+  const b2b = Object.keys(b2bWeeks).map(n => n + ' (week' + (b2bWeeks[n].length > 1 ? 's ' : ' ') + b2bWeeks[n].join(', ') + ')');
+  if (b2b.length) lines.push({ tone: 'warn', text: 'Back-to-back inpatient weeks: ' + b2b.join(', ') + '.' });
+  else if (weeksOut.length) lines.push({ tone: 'ok', text: 'No one works back-to-back inpatient weeks.' });
+  const noOpd = leaveWeeks.filter(x => x.opdCount === 0 && x.available > 2);
+  if (noOpd.length) lines.push({ tone: 'info', text: span(noOpd) + ': no one is assigned to OPD' +
+    (noOpd.some(x => x.offDuty.length) ? '; the Off-duty consultant is the reserve (' + [...new Set([].concat.apply([], noOpd.map(x => x.offDuty)))].join(', ') + ').' : '.') });
+  const back = weeksOut.find(x => x.weekNo > leaveEndWeek && x.onLeave.indexOf(who) === -1);
+  if (back) {
+    const role = back.inpatient.indexOf(who) !== -1 ? 'inpatient' : back.offDuty.indexOf(who) !== -1 ? 'Off-duty' : 'OPD';
+    lines.push({ tone: 'info', text: who + ' returns in week ' + back.weekNo + ' (' + dateOnlyNice_(back.weekStart) + ') and is scheduled for ' + role + '.' });
+  }
+  return { fromWeek: fromWeek, toWeek: toWeek, weeks: weeksOut, lines: lines };
 }
 
 function approveLeave(adminPin, leaveId, overrideReason) {
@@ -1892,6 +2016,12 @@ function deleteDraftRota(adminPin, versionId) {
 
 function resetRotaData(adminPin, confirmText) {
   requireAdminPin_(adminPin);
+  // Production guard: deleting every rota period/version/assignment and trashing the
+  // archive files must be explicitly enabled per deployment (e.g. staging only) via
+  // Apps Script -> Project Settings -> Script Properties: ALLOW_ROTA_RESET = YES.
+  if (String(PropertiesService.getScriptProperties().getProperty('ALLOW_ROTA_RESET') || '').trim().toUpperCase() !== 'YES') {
+    throw new Error('Clear Generated Rota is disabled on this deployment to protect rota history. Nothing was changed.');
+  }
   setupDatabase();
   if (String(confirmText || '').trim() !== 'RESET ROTA') throw new Error('Type RESET ROTA to confirm.');
   const lock = LockService.getDocumentLock();
@@ -3922,10 +4052,18 @@ function getOrCreatePeriodArchive_(periodId) {
   let archiveId = String(period.ArchiveSpreadsheetID || '').trim();
   let archive;
   if (archiveId) {
+    // Never replace an existing archive link: earlier archived amendments of this
+    // period live only in that file. A transient Drive error or a permission change
+    // must stop the operation (callers roll back) instead of silently re-linking.
     try { archive = SpreadsheetApp.openById(archiveId); }
-    catch (_) { archiveId = ''; }
+    catch (err) {
+      throw new Error('The assignment archive spreadsheet for rota period ' + (period.PeriodName || period.PeriodID) +
+        ' could not be opened (ID ' + archiveId + '). No changes were kept. Check that the script owner still has Drive access to that file, then retry.');
+    }
+    return archive;
   }
-  if (!archiveId) {
+  // No archive exists yet for this period: create it once and record its ID.
+  {
     archive = SpreadsheetApp.create(`${APP.title} Archive - ${period.PeriodName || period.PeriodID}`.slice(0, 95));
     archiveId = archive.getId();
     try {
@@ -4004,8 +4142,16 @@ function restoreVersionAssignmentsToLive_(versionId) {
   const version = readObjects_(SHEETS.RotaVersions).find(v => String(v.VersionID) === String(versionId));
   if (!version) throw new Error('Rota version was not found for restoration.');
   const existing = readObjects_(SHEETS.RotaAssignments).filter(r => String(r.VersionID) === String(versionId));
-  if (existing.length) return existing;
-  const rows = readArchivedAssignments_(version);
+  let rows = null;
+  if (existing.length) {
+    // An interrupted archive move can leave only part of a version in the live sheet
+    // while the archive copy (written first) is complete. Prefer the complete copy.
+    const lookup = Object.assign({}, version, { ArchiveSheetName: version.ArchiveSheetName || assignmentArchiveSheetName_(version) });
+    try { rows = readArchivedAssignments_(lookup); } catch (_) { return existing; }
+    if (rows.length <= existing.length) return existing;
+    deleteRowsWhere_(SHEETS.RotaAssignments, r => String(r.VersionID) === String(versionId));
+  }
+  if (!rows) rows = readArchivedAssignments_(version);
   if (!rows.length) throw new Error('This archived amendment has no stored assignments and cannot be restored.');
   appendRows_(SHEETS.RotaAssignments, rows.map(r => Object.assign({}, r, { VersionID: version.VersionID, PeriodID: version.PeriodID })));
   updateRow_(SHEETS.RotaVersions, 'VersionID', version.VersionID, { AssignmentStorage: 'Live', AssignmentCount: rows.length });
@@ -4080,8 +4226,10 @@ function migrateAssignmentStorage_() {
     if (count) updateRow_(SHEETS.RotaVersions, 'VersionID', v.VersionID, { AssignmentStorage: 'Live', AssignmentCount: count });
   });
 
-  const keptRows = assignments.filter(r => keep[String(r.VersionID || '')]);
-  if (archivePlans.length) rewriteSheetObjects_(SHEETS.RotaAssignments, keptRows);
+  // Remove only the rows that were just archived; kept rows are never rewritten.
+  const archivedIds = {};
+  archivePlans.forEach(p => { archivedIds[String(p.version.VersionID)] = true; });
+  if (archivePlans.length) deleteRowsWhere_(SHEETS.RotaAssignments, r => !!archivedIds[String(r.VersionID || '')]);
   const archivedRows = archivePlans.reduce((n, p) => n + p.rows.length, 0);
   updateSetting_('AssignmentArchiveMigrationV18', 'Done');
   return { status: archivePlans.length ? 'Migrated' : 'Done', archivedVersions: archivePlans.length, archivedRows: archivedRows, summary: assignmentStorageSummary_() };
@@ -4139,6 +4287,7 @@ function getRotaVersions_(knownPeriods) {
 }
 
 function deleteAllDataRows_(sheetName) {
+  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const last = sh.getLastRow();
   if (last <= 1) return;
@@ -4152,49 +4301,13 @@ function deleteAllDataRows_(sheetName) {
 }
 
 
-function rewriteSheetObjects_(sheetName, objects) {
-  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
-  const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
-  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
-  const lastRow = sh.getLastRow();
-  if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, headers.length).clearContent();
-  if (objects && objects.length) {
-    const values = objects.map(obj => headers.map(h => obj[h] === undefined ? '' : obj[h]));
-    sh.getRange(2, 1, values.length, headers.length).setValues(values);
-    perfSheetWrite_(values.length);
-  }
-  SpreadsheetApp.flush();
-  if (sheetName === SHEETS.RotaAssignments) clearAssignmentStorageSummaryCache_();
-  if (sheetAffectsPublicStartup_(sheetName)) invalidatePublicStartupCache_();
-}
-
 function removeVersionAssignmentsFromLive_(versionId) {
-  const all = readObjects_(SHEETS.RotaAssignments);
+  // Deletes only this version's rows (bottom-up, in contiguous blocks). Rows of other
+  // versions are never cleared or rewritten, so an interrupted call can leave some of
+  // this (already archived) version behind, but can never empty the live sheet.
   const id = String(versionId || '');
-  const matching = [];
-  all.forEach((row, idx) => { if (String(row.VersionID || '') === id) matching.push(idx); });
-  if (!matching.length) return 0;
-  // appendRows_ writes complete versions together, so normally only one contiguous
-  // run needs removal. Preserve the original rewrite fallback for mixed historical rows.
-  const contiguous = matching[matching.length - 1] - matching[0] + 1 === matching.length;
-  const sh = ensureSheet_(SHEETS.RotaAssignments, HEADERS.RotaAssignments);
-  // An older Sheet with blank spacer rows cannot use index-based deletion.
-  // The rewrite fallback handles it without risking a wrong physical row.
-  if (contiguous && all.length === sh.getLastRow() - 1) {
-    const startRow = matching[0] + 2;
-    // Sheets requires one spare non-frozen row when removing all data rows.
-    if (sh.getMaxRows() <= matching.length + 1 && matching.length === all.length) {
-      sh.insertRowAfter(sh.getMaxRows());
-    }
-    sh.deleteRows(startRow, matching.length);
-    perfSheetWrite_(matching.length);
-    clearAssignmentStorageSummaryCache_();
-    invalidatePublicStartupCache_();
-  } else {
-    const keep = all.filter(r => String(r.VersionID || '') !== id);
-    rewriteSheetObjects_(SHEETS.RotaAssignments, keep);
-  }
-  return matching.length;
+  if (!id) return 0;
+  return deleteRowsWhere_(SHEETS.RotaAssignments, r => String(r.VersionID || '') === id);
 }
 
 function restoreOfficialAfterRollback_(version) {
@@ -4204,6 +4317,7 @@ function restoreOfficialAfterRollback_(version) {
 }
 
 function deleteRowsWhere_(sheetName, predicate) {
+  if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[sheetName];
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const values = sh.getDataRange().getValues();
   perfSheetRead_(values.length > 0 ? values.length - 1 : 0);

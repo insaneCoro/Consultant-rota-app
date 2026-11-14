@@ -27,6 +27,13 @@ leave request.
 Backend: new read-only API `previewLeaveWhatIf`; `previewLeaveImpact` returns an
 extra `outlook` field (existing fields unchanged).
 
+### 1b. Clearer "Extend / shorten / amend dates" form (website only)
+Amending an approved leave used three separate pop-up boxes (start date, then end
+date, then reason), which made it look as if only the start date could be changed.
+It is now one form showing the current dates, both date pickers and the reason
+together, followed by a confirmation that says what changes ("extended by 7 day(s),
+now ending ..."). The backend call is unchanged, so this works with rc22 too.
+
 ### 2. Storage safety (no visible change in daily use)
 - Archiving an old amendment now deletes only that amendment's rows. The old
   fallback that cleared and rewrote the whole `RotaAssignments` sheet is removed,

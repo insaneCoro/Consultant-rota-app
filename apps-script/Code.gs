@@ -72,12 +72,39 @@ let API_PERF_CONTEXT_ = null;
 // Sheet objects and validated headers are memoized for ONE API invocation only.
 // Mutations are never cached across API calls or separate Apps Script executions.
 let REQUEST_SHEET_MEMO_ = null;
+// v3.12: while setupDatabase()'s "schema verified" cache flag is valid, per-request header
+// re-checks are skipped (one Sheets read saved per sheet per request). Safe Repair and
+// every release that changes columns (new cache key) force a full check again.
+const DB_READY_CACHE_KEY_ = 'dbReady_v3_10_reactivate';
+let REQUEST_SCHEMA_TRUSTED_ = null;
+function schemaTrusted_() {
+  if (!REQUEST_SHEET_MEMO_) return false; // only inside an API request
+  if (REQUEST_SCHEMA_TRUSTED_ === null) {
+    try { REQUEST_SCHEMA_TRUSTED_ = CacheService.getScriptCache().get(DB_READY_CACHE_KEY_) === '1'; }
+    catch (_) { REQUEST_SCHEMA_TRUSTED_ = false; }
+  }
+  return REQUEST_SCHEMA_TRUSTED_;
+}
+// Request-scoped read memo (v3.12): within ONE API invocation each sheet is read from
+// Google Sheets at most once between writes. Safety rules:
+//  - it never outlives the request (reset in handleApiRequest_),
+//  - every write helper drops the written sheet from the memo,
+//  - it is emptied when the document lock is acquired, so decisions made while holding
+//    the lock never use data read before the lock,
+//  - callers always receive copies, so changing a returned row cannot alter the memo.
 let ADMIN_READ_MEMO_ = null;
+var READ_MEMO_ENABLED_ = true; // tests switch this off to prove identical results
 function withAdminReadMemo_(fn) {
-  const previous = ADMIN_READ_MEMO_;
+  if (ADMIN_READ_MEMO_) return fn(); // already inside a memoized API request
   ADMIN_READ_MEMO_ = Object.create(null);
   try { return fn(); }
-  finally { ADMIN_READ_MEMO_ = previous; }
+  finally { ADMIN_READ_MEMO_ = null; }
+}
+function resetReadMemo_() {
+  if (ADMIN_READ_MEMO_) ADMIN_READ_MEMO_ = Object.create(null);
+}
+function copyRows_(rows) {
+  return rows.map(r => Object.assign({}, r));
 }
 function perfSheetRead_(rowCount) {
   if (!API_PERF_CONTEXT_) return;
@@ -96,6 +123,8 @@ function handleApiRequest_(e) {
   const context = { sheetReads: 0, rowsRead: 0, sheetWrites: 0, rowsWritten: 0, schemaChecks: 0, rowFinds: 0, cacheInvalidations: 0 };
   // Do not reuse a sheet reference between user requests or database copies.
   REQUEST_SHEET_MEMO_ = Object.create(null);
+  REQUEST_SCHEMA_TRUSTED_ = null;
+  ADMIN_READ_MEMO_ = READ_MEMO_ENABLED_ ? Object.create(null) : null;
   API_PERF_CONTEXT_ = context;
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -120,6 +149,8 @@ function handleApiRequest_(e) {
       cacheInvalidations: context.cacheInvalidations })); } catch (_) {}
     API_PERF_CONTEXT_ = null;
     REQUEST_SHEET_MEMO_ = null;
+    REQUEST_SCHEMA_TRUSTED_ = null;
+    ADMIN_READ_MEMO_ = null;
   }
 }
 
@@ -203,7 +234,7 @@ function renderHtmlFile_(name) {
 function setupDatabase() {
   const cache = CacheService.getScriptCache();
   // Versioned cache key: schema/auth changes must be checked after every release upgrade.
-  const cacheKey = 'dbReady_v3_10_reactivate';
+  const cacheKey = DB_READY_CACHE_KEY_;
   if (cache.get(cacheKey) === '1') {
     return { ok: true, message: 'Database sheets are ready.', sheets: Object.values(SHEETS), url: getDb_().getUrl() };
   }
@@ -212,7 +243,7 @@ function setupDatabase() {
   seedSettings_();
   ensureAdminAuthMigration_();
   ensureRotaPeriodMigration_();
-  cache.put(cacheKey, '1', 3600);
+  cache.put(cacheKey, '1', 21600);
   return { ok: true, message: 'Database sheets are ready.', sheets: Object.values(SHEETS), url: ss.getUrl() };
 }
 
@@ -264,19 +295,26 @@ function buildPublicStartupPayload_() {
 }
 
 function readObjectsNoRepair_(sheetName) {
+  if (ADMIN_READ_MEMO_ && Object.prototype.hasOwnProperty.call(ADMIN_READ_MEMO_, sheetName)) {
+    return copyRows_(ADMIN_READ_MEMO_[sheetName]);
+  }
   const sh = getDb_().getSheetByName(sheetName);
   if (!sh) throw new Error(`Database sheet ${sheetName} is missing. Main admin must run Setup -> Safe Repair / Add Missing Columns.`);
   const values = sh.getDataRange().getValues();
   perfSheetRead_(values.length > 0 ? values.length - 1 : 0);
-  if (values.length < 2) return [];
-  const headers = values[0].map(String);
-  return values.slice(1)
-    .filter(row => row.some(v => v !== '' && v !== null))
-    .map(row => {
-      const obj = {};
-      headers.forEach((h, i) => obj[h] = normalizeCell_(row[i]));
-      return obj;
-    });
+  let result = [];
+  if (values.length >= 2) {
+    const headers = values[0].map(String);
+    result = values.slice(1)
+      .filter(row => row.some(v => v !== '' && v !== null))
+      .map(row => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = normalizeCell_(row[i]));
+        return obj;
+      });
+  }
+  if (ADMIN_READ_MEMO_) ADMIN_READ_MEMO_[sheetName] = copyRows_(result);
+  return result;
 }
 
 function getLatestVersionFromData_(periods, versions) {
@@ -521,7 +559,7 @@ function publishManualEditedWeek(adminPin, data) {
   const session = requireAdminPin_(adminPin);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   let version = null;
   let latest = null;
   let madeOfficial = false;
@@ -619,9 +657,10 @@ function setupDatabaseAdmin(adminToken) {
   // Safe Repair always performs a fresh header check even if this request has
   // already read a sheet; never trust request-local schema memo for repairs.
   if (REQUEST_SHEET_MEMO_) REQUEST_SHEET_MEMO_ = Object.create(null);
+  REQUEST_SCHEMA_TRUSTED_ = false;
   const session = requireAdminPin_(adminToken);
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const cache = CacheService.getScriptCache();
     ['dbReady', 'dbReady_v1_6', 'dbReady_v1_7', 'dbReady_v1_8', 'dbReady_v1_9', 'dbReady_v2_3_subteams', 'dbReady_v3_10_reactivate'].forEach(k => cache.remove(k));
@@ -644,7 +683,7 @@ function updateAdminPin(adminToken, newPin) {
   const pin = String(newPin || '').trim();
   if (!/^\d{4,8}$/.test(pin)) throw new Error('Admin PIN must be 4 to 8 digits.');
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const users = getAdminUsersRaw_();
     const user = users.find(u => String(u.UserID) === String(session.userId));
@@ -666,7 +705,7 @@ function saveAdminUser(adminToken, data) {
   const session = requireAdminPin_(adminToken);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const input = data || {};
     const name = String(input.Name || '').trim();
@@ -745,7 +784,7 @@ function saveTeam(adminPin, team) {
   const session = requireAdminPin_(adminPin);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const now = now_();
     const name = String(team.TeamName || '').trim();
@@ -880,7 +919,7 @@ function saveTeam(adminPin, team) {
 function saveSubTeamCoverageChoice(adminToken, input) {
   const session = requireAdminPin_(adminToken);
   setupDatabase();
-  const lock = LockService.getDocumentLock(); lock.waitLock(30000);
+  const lock = LockService.getDocumentLock(); lock.waitLock(30000); resetReadMemo_();
   try {
     const teamId = String((input && input.teamId) || '').trim();
     const team = getTeams_().find(t => String(t.TeamID) === teamId);
@@ -899,7 +938,7 @@ function saveConsultant(adminPin, c) {
   requireAdminPin_(adminPin);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const now = now_();
     const name = String(c.Name || '').trim();
@@ -1062,7 +1101,7 @@ function createDraftRota(adminPin, params) {
   requireAdminPin_(adminPin);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const existingDraft = getRotaVersions_().find(v => v.Status === 'Draft');
     if (existingDraft) {
@@ -1232,7 +1271,7 @@ function publishDraftRota(adminPin, versionId) {
   const session = requireAdminPin_(adminPin);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const draft = getRotaVersions_().find(v => v.VersionID === versionId);
     if (!draft) throw new Error('Draft rota version was not found.');
@@ -1282,7 +1321,7 @@ function consultantUnavailableForLeave_(c) {
 function submitLeaveRequest(data) {
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const consultantId = String(data.ConsultantID || '').trim();
     const consultant = getConsultants_().find(c => c.ConsultantID === consultantId);
@@ -1371,7 +1410,7 @@ function getLeaveRequestsForConsultant(consultantId) {
 function updateLeaveRequest(data) {
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const leaveId = String(data.LeaveID || '').trim();
     const consultantId = String(data.ConsultantID || '').trim();
@@ -1469,7 +1508,7 @@ function summarizeUserLeaveCheck_(level, overlaps, conflicts, fallback) {
 function previewLeaveImpact(adminPin, leaveId) {
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const leave = readObjects_(SHEETS.LeaveRequests).find(l => l.LeaveID === leaveId);
     if (!leave) throw new Error('Leave request was not found.');
@@ -1627,7 +1666,7 @@ function leaveStaffingOutlook_(simulation, latest, leave, fromWeekNo) {
 
 function approveLeave(adminPin, leaveId, overrideReason) {
   setupDatabase();
-  const lock = LockService.getDocumentLock(); lock.waitLock(30000);
+  const lock = LockService.getDocumentLock(); lock.waitLock(30000); resetReadMemo_();
   try {
     const leave = readObjects_(SHEETS.LeaveRequests).find(l => l.LeaveID === leaveId);
     if (!leave) throw new Error('Leave request was not found.');
@@ -1670,7 +1709,7 @@ function approveLeave(adminPin, leaveId, overrideReason) {
  */
 function amendApprovedLeave(adminToken, originalLeaveId, newStartISO, newEndISO, adminNote) {
   setupDatabase();
-  const lock = LockService.getDocumentLock(); lock.waitLock(30000);
+  const lock = LockService.getDocumentLock(); lock.waitLock(30000); resetReadMemo_();
   try {
     const oldLeave = readObjects_(SHEETS.LeaveRequests).find(l => String(l.LeaveID) === String(originalLeaveId));
     if (!oldLeave) throw new Error('Original leave request was not found.');
@@ -1761,7 +1800,7 @@ function amendApprovedLeave(adminToken, originalLeaveId, newStartISO, newEndISO,
 function cancelApprovedLeave(adminPin, leaveId, note) {
   const session = requireAdminPin_(adminPin);
   setupDatabase();
-  const lock = LockService.getDocumentLock(); lock.waitLock(30000);
+  const lock = LockService.getDocumentLock(); lock.waitLock(30000); resetReadMemo_();
   try {
     const leave = readObjects_(SHEETS.LeaveRequests).find(l => l.LeaveID === leaveId);
     if (!leave) throw new Error('Leave request was not found.');
@@ -1798,7 +1837,7 @@ function cancelApprovedLeave(adminPin, leaveId, note) {
 function rejectLeave(adminPin, leaveId, note) {
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const leave = readObjects_(SHEETS.LeaveRequests).find(l => l.LeaveID === leaveId);
     if (!leave) throw new Error('Leave request was not found.');
@@ -1850,7 +1889,7 @@ function previewInactivity(adminPin, data) {
 function confirmInactivity(adminPin, data) {
   const session = requireAdminPin_(adminPin);
   setupDatabase();
-  const lock = LockService.getDocumentLock(); lock.waitLock(30000);
+  const lock = LockService.getDocumentLock(); lock.waitLock(30000); resetReadMemo_();
   try {
     const consultant = findConsultant_(data.ConsultantID);
     if (!consultant) throw new Error('Consultant not found.');
@@ -1883,7 +1922,7 @@ function voidRotaVersion(adminToken, versionId, reason) {
   const session = requireAdminPin_(adminToken);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   let version = null;
   let restored = null;
   try {
@@ -1944,7 +1983,7 @@ function restoreRotaVersion(adminToken, versionId, reason) {
   const session = requireAdminPin_(adminToken);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   const versionSnapshots = [];
   const periodSnapshots = [];
   try {
@@ -1996,7 +2035,7 @@ function deleteDraftRota(adminPin, versionId) {
   requireAdminPin_(adminPin);
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const version = getRotaVersions_().find(v => v.VersionID === versionId);
     if (!version) throw new Error('Rota version was not found.');
@@ -2025,7 +2064,7 @@ function resetRotaData(adminPin, confirmText) {
   setupDatabase();
   if (String(confirmText || '').trim() !== 'RESET ROTA') throw new Error('Type RESET ROTA to confirm.');
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const before = {
       periods: readObjects_(SHEETS.RotaPeriods).length,
@@ -2199,7 +2238,7 @@ function subTeamExportText_(team, index) {
 function exportLatestRota() {
   setupDatabase();
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const latest = getLatestVersion_();
     if (!latest) throw new Error('No official rota exists yet. Generate a rota first.');
@@ -3878,11 +3917,15 @@ function nextAmendmentNoForPeriod_(periodId) {
 function activatePeriod_(periodId) {
   const id = String(periodId || '').trim();
   if (!id) throw new Error('Rota period ID is required.');
-  getRotaPeriods_().forEach(p => {
+  const periods = getRotaPeriods_();
+  periods.forEach(p => {
     if (p.Status === 'Active' && String(p.PeriodID) !== id) {
       updateRow_(SHEETS.RotaPeriods, 'PeriodID', p.PeriodID, { Status: 'Archived', ArchivedAt: now_() });
     }
   });
+  // Already active: keep the original activation time instead of rewriting it on every check.
+  const target = periods.find(p => String(p.PeriodID) === id);
+  if (target && target.Status === 'Active' && target.ActivatedAt && !target.ArchivedAt) return;
   updateRow_(SHEETS.RotaPeriods, 'PeriodID', id, { Status: 'Active', ActivatedAt: now_(), ArchivedAt: '' });
 }
 
@@ -4000,7 +4043,10 @@ function backfillAssignmentPeriodIds_(versionToPeriod) {
       }
     }
   }
-  if (changed) sh.getRange(1, 1, values.length, headers.length).setValues(values);
+  if (changed) {
+    if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[SHEETS.RotaAssignments];
+    sh.getRange(1, 1, values.length, headers.length).setValues(values);
+  }
 }
 
 function createRotaVersion_(v) {
@@ -4239,7 +4285,7 @@ function archiveHistoricalAssignments(adminToken, confirmText) {
   const session = requireAdminPin_(adminToken);
   if (String(confirmText || '').trim() !== 'ARCHIVE HISTORY') throw new Error('Type ARCHIVE HISTORY to confirm.');
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const before = assignmentStorageSummary_();
     const result = migrateAssignmentStorage_();
@@ -4496,6 +4542,7 @@ function ensureSheet_(name, headers) {
   if (REQUEST_SHEET_MEMO_ && REQUEST_SHEET_MEMO_[name]) return REQUEST_SHEET_MEMO_[name];
   const ss = getDb_();
   let sh = ss.getSheetByName(name);
+  if (sh && schemaTrusted_()) { REQUEST_SHEET_MEMO_[name] = sh; return sh; }
   if (!sh) sh = ss.insertSheet(name);
   if (API_PERF_CONTEXT_) API_PERF_CONTEXT_.schemaChecks++;
   if (sh.getLastRow() === 0) {
@@ -4509,6 +4556,7 @@ function ensureSheet_(name, headers) {
     perfSheetRead_(1);
     const missing = headers.filter(h => current.indexOf(h) === -1);
     if (missing.length) {
+      if (ADMIN_READ_MEMO_) delete ADMIN_READ_MEMO_[name];
       sh.getRange(1, sh.getLastColumn() + 1, 1, missing.length).setValues([missing]);
       perfSheetWrite_(1);
       sh.autoResizeColumns(1, sh.getLastColumn());
@@ -4733,7 +4781,7 @@ function loginAdmin(username, pin) {
   const suppliedPin = String(pin || '').trim();
   if (!uname || !suppliedPin) throw new Error('Enter username and PIN.');
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     const attempts=PropertiesService.getScriptProperties(), attemptKey=adminAttemptKey_(uname);
     checkLoginThrottle_(attempts,attemptKey);
@@ -4759,7 +4807,7 @@ function logoutAdminSession(token) {
   removeAdminSession_(token);
   if (!session) return { ok: true, message: 'Signed out.' };
   const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  lock.waitLock(30000); resetReadMemo_();
   try {
     appendAudit_(session, 'ADMIN_LOGOUT', 'AdminUser', session.userId, { username: session.username });
     return { ok: true, message: 'Signed out.' };
@@ -4881,7 +4929,7 @@ function getAuditLog(adminPin, limit) {
 
 function readObjects_(sheetName) {
   if (ADMIN_READ_MEMO_ && Object.prototype.hasOwnProperty.call(ADMIN_READ_MEMO_, sheetName)) {
-    return ADMIN_READ_MEMO_[sheetName];
+    return copyRows_(ADMIN_READ_MEMO_[sheetName]);
   }
   const sh = ensureSheet_(sheetName, HEADERS[sheetName]);
   const values = sh.getDataRange().getValues();
@@ -4897,7 +4945,7 @@ function readObjects_(sheetName) {
         return obj;
       });
   }
-  if (ADMIN_READ_MEMO_) ADMIN_READ_MEMO_[sheetName] = result;
+  if (ADMIN_READ_MEMO_) ADMIN_READ_MEMO_[sheetName] = copyRows_(result);
   return result;
 }
 

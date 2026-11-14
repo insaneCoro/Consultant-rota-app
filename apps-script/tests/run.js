@@ -138,9 +138,9 @@ test('End-to-end: approved leave amendment archives the old official, preserves 
 });
 
 // ---- What-if leave check ----
-function whatIfEnv() {
+function whatIfEnv(realAuth) {
   const env = baseEnv();
-  env.requireLeaveAdmin_ = () => ({ isMainAdmin: true });
+  if (!realAuth) env.requireLeaveAdmin_ = () => ({ isMainAdmin: true });
   seed(env, 'RotaVersions', [{ VersionID: 'V2', AmendmentNo: 1, Status: 'Official', PeriodID: 'P1', StartDate: '2026-07-05', EndDate: '2027-07-03', Weeks: 52 }]);
   const base = env.buildRotaRows_({ versionId: 'V2', startDate: env.toDate_('2026-07-05'), weeks: 52, fromWeekNo: 1, previousRows: [], teamIds: ['T1'] });
   seed(env, SA, base.rows.map(r => Object.assign(r, { PeriodID: 'P1' })));
@@ -205,6 +205,93 @@ test('API: previewLeaveWhatIf is reachable through doPost and rejects a missing 
   const env = baseEnv();
   const out = JSON.parse(env.doPost({ postData: { contents: JSON.stringify({ fn: 'previewLeaveWhatIf', args: ['', { ConsultantID: 'A', StartDate: '2027-02-07', EndDate: '2027-02-08' }] }) } }));
   assert.strictEqual(out.ok, false); assert.match(out.error, /sign in again/i);
+});
+
+// ---- Request-scoped read memo (performance) ----
+const vm = require('vm');
+const fs = require('fs');
+const CODE = fs.readFileSync(require('path').join(__dirname, '..', 'Code.gs'), 'utf8');
+
+function apiEnv(memoOn) {
+  const env = whatIfEnv(true); // real permission checks through the API
+  env.READ_MEMO_ENABLED_ = memoOn;
+  seed(env, 'AdminUsers', [{ UserID: 'ADM1', Username: 'tester', Name: 'Admin', PINHash: env.hashPin_('246810', 'salt'), PINSalt: 'salt', AuthVersion: 1, Role: 'MainAdmin', TeamID: 'ALL', Active: 'Yes' }]);
+  return env;
+}
+function apiSequence(env) {
+  const log = [];
+  const api = (fn, args) => { const out = JSON.parse(env.doPost({ postData: { contents: JSON.stringify({ fn, args }) } })); log.push([fn, out]); return out.result || {}; };
+  api('getStartupPayload', []);
+  const t = api('loginAdmin', ['tester', '246810']).sessionToken;
+  api('getAdminData', [t, 'full']); api('getAdminLeaveData', [t]); api('getRotaWeekTeamView', [t, 40, 'T1']);
+  const l1 = api('submitLeaveRequest', [{ ConsultantID: 'A', StartDate: '2027-02-07', EndDate: '2027-02-20', Note: '' }]).leave.LeaveID;
+  api('previewLeaveImpact', [t, l1]); api('approveLeave', [t, l1, '']);
+  api('previewLeaveWhatIf', [t, { ConsultantID: 'B', StartDate: '2027-03-07', EndDate: '2027-03-13' }]);
+  const approved = env.readObjects_('LeaveRequests').find(l => l.Status === 'Approved');
+  api('amendApprovedLeave', [t, approved.LeaveID, '2027-02-07', '2027-02-27', 'extended']);
+  const current = env.readObjects_('LeaveRequests').find(l => l.Status === 'Approved');
+  api('cancelApprovedLeave', [t, current.LeaveID, 'cancelled']);
+  api('rearrangeTeamRota', [t, { teamId: 'T1', weekNo: 45 }]);
+  const draft = env.readObjects_('RotaVersions').find(v => v.Status === 'Draft');
+  api('publishDraftRota', [t, draft.VersionID]);
+  api('getStartupPayload', []); api('getAdminData', [t, 'full']);
+  return { log, t };
+}
+const normalise = x => JSON.stringify(x).replace(/\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/g, 'TS');
+const dbSnapshot = env => normalise(Object.keys(env.__db.sheets).sort().map(k => [k, env.__db.sheets[k].data]));
+
+test('Read memo: every API response and the final database are identical with the memo on and off', () => {
+  const on = apiEnv(true), off = apiEnv(false);
+  const a = apiSequence(on), b = apiSequence(off);
+  assert.ok(a.log.every(([fn, out]) => out.ok), 'sequence runs without errors: ' + a.log.filter(x => !x[1].ok).map(x => x[0] + ': ' + x[1].error).join('; '));
+  a.log.forEach((x, i) => assert.strictEqual(normalise(x), normalise(b.log[i]), 'response differs for ' + x[0]));
+  assert.strictEqual(dbSnapshot(on), dbSnapshot(off));
+  assert.strictEqual(on.readObjects_('RotaVersions').filter(v => v.Status === 'Official').length, 1, 'exactly one official rota');
+});
+
+test('Read memo: fewer Sheets reads for the same work', () => {
+  const count = memoOn => {
+    const env = apiEnv(memoOn); let reads = 0;
+    Object.values(env.__db.sheets).forEach(sh => { const orig = sh.getDataRange.bind(sh); sh.getDataRange = () => { reads++; return orig(); }; });
+    apiSequence(env); return reads;
+  };
+  const withMemo = count(true), without = count(false);
+  assert.ok(withMemo < without * 0.8, `expected a clear reduction, got ${withMemo} vs ${without}`);
+});
+
+test('Read memo: data read before the lock is never reused after the lock is taken', () => {
+  const sites = CODE.match(/\.waitLock\([^)]*\);[^\n]*/g) || [];
+  assert.ok(sites.length >= 20);
+  sites.forEach(line => assert.ok(/resetReadMemo_\(\);/.test(line), 'lock without memo reset: ' + line));
+  const env = baseEnv();
+  const out = vm.runInContext(`(function () {
+    ADMIN_READ_MEMO_ = Object.create(null);
+    const before = readObjects_('Teams')[0].TeamName;
+    __db.getSheetByName('Teams').data[1][1] = 'Renamed elsewhere';        // another request wrote meanwhile
+    const cached = readObjects_('Teams')[0].TeamName;
+    resetReadMemo_();                                                      // what happens on waitLock
+    const fresh = readObjects_('Teams')[0].TeamName;
+    const rows = readObjects_('Teams'); rows[0].TeamName = 'mutated by caller';
+    const untouched = readObjects_('Teams')[0].TeamName;
+    ADMIN_READ_MEMO_ = null;
+    return { before, cached, fresh, untouched };
+  })()`, env);
+  assert.strictEqual(JSON.stringify(out), JSON.stringify({ before: 'Medicine', cached: 'Medicine', fresh: 'Renamed elsewhere', untouched: 'Renamed elsewhere' }));
+});
+
+test('Schema check: skipped while the setup flag is valid, forced again by Safe Repair', () => {
+  const env = apiEnv(true);
+  const { t } = apiSequence(env);
+  // Remove a column behind the app's back; a normal request trusts the flag...
+  const sh = env.__db.getSheetByName('Teams'); const col = sh.data[0].indexOf('OneConsultantPriority');
+  sh.data.forEach(r => r.splice(col, 1));
+  const normal = JSON.parse(env.doPost({ postData: { contents: JSON.stringify({ fn: 'getAdminData', args: [t, 'dashboard'] }) } }));
+  assert.strictEqual(normal.ok, true);
+  assert.strictEqual(sh.data[0].indexOf('OneConsultantPriority'), -1, 'no repair during a normal request');
+  // ...and Safe Repair restores it.
+  const repair = JSON.parse(env.doPost({ postData: { contents: JSON.stringify({ fn: 'setupDatabaseAdmin', args: [t] }) } }));
+  assert.strictEqual(repair.ok, true, repair.error);
+  assert.notStrictEqual(sh.data[0].indexOf('OneConsultantPriority'), -1, 'Safe Repair adds the missing column back');
 });
 
 let failed = 0;

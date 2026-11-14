@@ -108,7 +108,7 @@ function createEnv() {
   const sandbox = {
     console,
     Utilities: {
-      formatDate, getUuid: () => 'uuid-' + (++uuid).toString(16).padStart(8, '0') + '-0000-0000-0000-000000000000',
+      formatDate, getUuid: () => (0xabc00000 + (++uuid)).toString(16).padStart(8, '0') + '-0000-4000-8000-000000000000', // unique in the first 8 chars, like makeId_ needs
       computeDigest: (_a, s) => Array.from(require('crypto').createHash('sha256').update(String(s)).digest()).map(b => (b > 127 ? b - 256 : b)),
       base64EncodeWebSafe: b => Buffer.from(b.map(x => (x + 256) % 256)).toString('base64url'),
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' }

@@ -39,6 +39,37 @@ extra `outlook` field (existing fields unchanged).
 - **Clear Generated Rota** is refused unless the Script Property
   `ALLOW_ROTA_RESET` is `YES`. Leave it unset in production.
 
+### 3. Faster: far fewer spreadsheet round-trips
+Each read or write of the Google Sheet is a slow round-trip. The backend now:
+- reads each sheet at most once per request between writes (a per-request cache
+  that is cleared on every write and whenever the database lock is taken)
+- skips the per-request column check while the setup step's "verified" flag is
+  valid (Safe Repair still forces a full check)
+- keeps that flag for 6 hours instead of 1
+- no longer rewrites the rota period's activation time on every setup check
+
+Sheet reads per action, measured offline on a copy of the real database:
+
+| Action | rc22 | 3.12 |
+|---|---|---|
+| Admin dashboard data | 14 | 7 |
+| Leave approval list | 8 | 4 |
+| Manual Edit: load a week | 14 | 6 |
+| Preview a leave | 23 | 10 |
+| Approve a leave (publishes) | 49 | 24 |
+| Amend approved leave | 51 | 25 |
+| Login (normal) | 5 | 3 |
+| Login (first after 6 h) | 25 | 20 |
+
+Writes are unchanged. Real seconds saved can only be measured on Google itself
+(Apps Script → Executions shows `durationMs` per call); each call also has a
+fixed Apps Script overhead that this cannot remove.
+
+Results are unchanged: the same 34-call sequence (login, previews, approve,
+amend, cancel, draft, publish, Manual Edit, inactivity, restore, void) gives
+identical API responses and an identical final database with the cache on and
+off, and an identical final database compared with rc22.
+
 ## Compatibility
 
 - New backend + old website: works as today (the extra data is ignored).
@@ -50,7 +81,7 @@ extra `outlook` field (existing fields unchanged).
 
 Offline only so far (not staging-tested, not deployed):
 
-- `TZ=Asia/Riyadh node apps-script/tests/run.js`: 14/14 pass, using an
+- `TZ=Asia/Riyadh node apps-script/tests/run.js`: 18/18 pass, using an
   in-memory Sheets/Drive mock with synthetic data. Includes a check that the
   what-if preview equals what a real approval then publishes, and that what-if
   writes nothing.

@@ -392,7 +392,7 @@ function statusPill(value){
 function apiLoadingMessage(fn){
   const map={
     getBootstrap:'Loading CTU ROTA…', getStartupPayload:'Loading CTU ROTA…', loginAdmin:'Signing in…', logoutAdminSession:'Signing out…', getLatestRotaWindow:'Loading current weeks…', getLatestRotaView:'Loading full rota…', getAdminData:'Loading admin panel…',
-    checkLeaveAvailability:'Checking leave overlap…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
+    checkLeaveAvailability:'Checking leave overlap…', previewLeaveWhatIf:'Checking what-if leave…', submitLeaveRequest:'Submitting leave request…', updateLeaveRequest:'Updating leave request…',
     exportLatestRota:'Preparing latest rota download…', startNewRota:'Creating draft rota…', createDraftRota:'Creating draft rota…', publishDraftRota:'Publishing draft rota…', approveLeave:'Approving leave…', amendApprovedLeave:'Amending approved leave…', rejectLeave:'Rejecting leave…', cancelApprovedLeave:'Cancelling approved leave…',
     saveAdminUser:'Saving sub-admin…', archiveHistoricalAssignments:'Archiving historical assignments…', getAuditLog:'Loading audit log…', getRotaWeekList:'Loading rota weeks…', getRotaWeekTeamView:'Loading selected week…', publishManualEditedWeek:'Publishing manual edit…'
   };
@@ -418,7 +418,7 @@ function requestApi(fn, args, options={}){
   const readOnly=new Set(['getStartupPayload','getBootstrap','getLatestRotaWindow',
     'getLatestRotaView','getAdminData','getAdminSession','getAdminLeaveData','getRotaWeekList',
     'getRotaWeekTeamView','getLeaveRequestsForConsultant','getAuditLog',
-    'getAssignmentStorageSummary']);
+    'getAssignmentStorageSummary','previewLeaveWhatIf']);
   const safeRetry=readOnly.has(fn);
   const startedAt=Date.now();
   let attempts=0, succeeded=false;
@@ -1731,7 +1731,7 @@ function renderRequests(){
   const history = adminLeaves.filter(l=>!['Pending','Approved'].includes(l.Status)).slice().sort((a,b)=>String(b.AdminDecisionDate||b.SubmittedAt||'').localeCompare(String(a.AdminDecisionDate||a.SubmittedAt||''))).slice(0,30);
   const scope = isMainAdmin() ? 'All teams' : `Assigned team only: ${esc((state.adminSession||{}).teamName || '')}`;
   const signOut = isTeamSubAdmin() ? '<button class="btn warn" onclick="logoutAdmin()">Sign out</button>' : '';
-  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshLeaveApprovalData()">Refresh Leave Data</button>${signOut}</div></div><div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled / Superseded</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
+  qs('#tab-requests').innerHTML = `<div class="card"><h2>Leave Approval</h2><p class="sub">Scope: <b>${scope}</b>. Approving leave creates an official amendment when the leave affects the current rota period.</p><div class="btns"><button class="btn secondary" onclick="refreshLeaveApprovalData()">Refresh Leave Data</button>${signOut}</div></div>${renderLeaveWhatIfCard()}<div class="card"><h2>Pending Requests</h2>${pending.length?pending.map(renderLeaveRequestCard).join(''):'<p class="muted">No pending requests.</p>'}</div><div class="card"><h2>Approved Leave</h2>${approved.length?approved.map(renderApprovedLeaveCard).join(''):'<p class="muted">No approved leave.</p>'}</div><div class="card"><h2>Recent Rejected / Cancelled / Superseded</h2>${history.length?history.map(renderLeaveHistoryCard).join(''):'<p class="muted">No recent history.</p>'}</div>`;
 }
 function renderLeaveRequestCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="previewLeave('${esc(l.LeaveID)}')">Preview</button><button class="btn ok" onclick="approveLeaveReq('${esc(l.LeaveID)}')">Approve</button><button class="btn bad" onclick="rejectLeaveReq('${esc(l.LeaveID)}')">Reject</button></div><div id="preview-${esc(l.LeaveID)}"></div></div>`;
@@ -1739,36 +1739,94 @@ function renderLeaveRequestCard(l){
 function renderApprovedLeaveCard(l){
   const cancelBtn = isMainAdmin() ? `<button class="btn warn" onclick="cancelApprovedLeaveReq('${esc(l.LeaveID)}')">Cancel approved leave</button>` : '';
   const amendmentLink = l.SupersedesLeaveID ? `<div class="small muted">Replaces approved request ${esc(l.SupersedesLeaveID)}</div>` : '';
-  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${amendmentLink}${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="amendApprovedLeaveReq('${esc(l.LeaveID)}')">Amend dates</button>${cancelBtn}</div></div>`;
+  return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${amendmentLink}${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}<div class="btns"><button class="btn secondary" onclick="amendApprovedLeaveReq('${esc(l.LeaveID)}')">Extend / shorten / amend dates</button>${cancelBtn}</div></div>`;
 }
 function renderLeaveHistoryCard(l){
   return `<div class="teamblock"><b>${esc(consultantName(l.ConsultantID))}</b> ${statusPill(l.Status)}<div class="small muted">${esc(teamName(l.TeamID))} · ${esc(l.StartDate)} to ${esc(l.EndDate)}</div>${l.UserNote?`<div class="small"><b>User note:</b> ${esc(l.UserNote)}</div>`:''}${l.AdminNote?`<div class="small"><b>Admin note:</b> ${esc(l.AdminNote)}</div>`:''}${l.SupersededByLeaveID?`<div class="small muted">Superseded by ${esc(l.SupersededByLeaveID)}</div>`:''}</div>`;
 }
+// What-if leave check: read-only simulation. It never creates a leave request and never changes the rota.
+function whatIfConsultants_(){
+  const today=new Date().toISOString().slice(0,10);
+  return (state.adminConsultants&&state.adminConsultants.length?state.adminConsultants:(state.consultants||[])).filter(c=>{
+    const inactiveFrom=String(c.InactiveFrom||'').slice(0,10);
+    return String(c.CurrentStatus||'').toLowerCase()!=='inactive' && !(inactiveFrom && inactiveFrom<=today);
+  });
+}
+function renderLeaveWhatIfCard(){
+  const w=state.leaveWhatIf||{}, list=whatIfConsultants_();
+  const options=list.map(c=>`<option value="${esc(c.ConsultantID)}" ${String(w.consultantId||'')===String(c.ConsultantID)?'selected':''}>${esc(c.Name)}${isMainAdmin()&&(state.teams||[]).length>1?' · '+esc(teamName(c.TeamID)):''}</option>`).join('');
+  return `<div class="card"><h2>What-if Leave Check</h2><p class="sub">See how the rota would look if a consultant took leave on these dates. This is only a preview: no leave request is created and the rota is not changed.</p><label>Consultant</label><select id="whatIfConsultant"><option value="">Select consultant</option>${options}</select><div class="row"><div><label>Start date</label><input type="date" id="whatIfStart" value="${esc(w.start||'')}"></div><div><label>End date</label><input type="date" id="whatIfEnd" value="${esc(w.end||'')}"></div></div><div class="btns"><button class="btn blue" onclick="runLeaveWhatIf()">Check</button>${w.result?'<button class="btn secondary" onclick="clearLeaveWhatIf()">Clear</button>':''}</div><div id="whatIfResult">${w.result?renderImpact(w.result):''}</div></div>`;
+}
+async function runLeaveWhatIf(){
+  const consultantId=(qs('#whatIfConsultant')||{}).value||'', start=(qs('#whatIfStart')||{}).value||'', end=(qs('#whatIfEnd')||{}).value||'';
+  if(!consultantId||!start||!end){ toast('Select a consultant, a start date and an end date.'); return; }
+  if(end<start){ toast('End date cannot be before start date.'); return; }
+  state.leaveWhatIf={consultantId:consultantId,start:start,end:end,result:null};
+  try{
+    state.leaveWhatIf.result=await adminCall('previewLeaveWhatIf',{ConsultantID:consultantId,StartDate:start,EndDate:end});
+  }catch(err){
+    if(/Unknown API function/i.test((err&&err.message)||'')) await alertModal('The what-if check needs the updated backend (3.12 or later). Nothing was changed.');
+  }
+  renderRequests();
+}
+function clearLeaveWhatIf(){ state.leaveWhatIf=null; renderRequests(); }
+function renderLeaveOutlook(o){
+  if(!o || !o.lines || !o.lines.length) return '';
+  const cls={bad:'bad',warn:'warn',ok:'ok',info:'blue'}, label={bad:'Critical',warn:'Note',ok:'OK',info:'Info'};
+  return `<h3>Staffing outlook</h3>${o.lines.map(l=>`<p><span class="pill ${cls[l.tone]||'blue'}">${label[l.tone]||'Info'}</span> ${esc(l.text)}</p>`).join('')}`;
+}
 async function previewLeave(id){ const r=await adminCall('previewLeaveImpact',id); qs(`#preview-${id}`).innerHTML=renderImpact(r); }
 async function approveLeaveReq(id){ const reason=(await promptModal('Override/admin note if needed. Leave blank if not needed.',''))||''; const r=await adminCall('approveLeave',id,reason); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
 async function rejectLeaveReq(id){ const note=(await promptModal('Reason for rejection?',''))||''; const r=await adminCall('rejectLeave',id,note); toast(r.message); auditLoaded=false; await refreshLeaveApprovalData(); }
+// One form for amending approved leave: both dates are visible together, so extending
+// or cutting a leave short is just a change of the end date.
+function amendLeaveModal_(old){
+  return new Promise(resolve=>{
+    const who=consultantName(old.ConsultantID), s0=String(old.StartDate||'').slice(0,10), e0=String(old.EndDate||'').slice(0,10);
+    const overlay=openModal_(`<h3 style="margin-top:0">Amend approved leave</h3><p><b>${esc(who)}</b><br><span class="small muted">Currently approved: ${esc(s0)} to ${esc(e0)}</span></p><p class="small muted">To extend the leave or end it early, change the end date. Change the start date only if the leave starts on a different day.</p><div class="row"><div><label>Start date</label><input type="date" data-role="start" value="${esc(s0)}"></div><div><label>End date</label><input type="date" data-role="end" value="${esc(e0)}"></div></div><label>Reason (required)</label><input type="text" data-role="reason" value="Dates revised by consultant"><p class="small dangerText" data-role="error" style="min-height:1.2em;margin:8px 0 0"></p><div class="modalActions"><button class="btn secondary" data-act="cancel">Cancel</button><button class="btn" data-act="ok">Review change</button></div>`);
+    const q=sel=>overlay.querySelector(sel);
+    const close=result=>{ overlay.remove(); resolve(result); };
+    const submit=()=>{
+      const start=q('[data-role="start"]').value, end=q('[data-role="end"]').value, reason=q('[data-role="reason"]').value.trim();
+      const fail=msg=>{ q('[data-role="error"]').textContent=msg; };
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)) return fail('Choose both a start date and an end date.');
+      if(end<start) return fail('The end date cannot be before the start date.');
+      if(start===s0 && end===e0) return fail('The dates are the same as the approved leave. Change the end date to extend or shorten it.');
+      if(!reason) return fail('Enter a short reason.');
+      close({start:start,end:end,reason:reason});
+    };
+    overlay.addEventListener('click', e=>{ if(e.target===overlay) close(null); });
+    q('[data-act="cancel"]').addEventListener('click', ()=>close(null));
+    q('[data-act="ok"]').addEventListener('click', submit);
+    overlay.addEventListener('keydown', e=>{ if(e.key==='Escape') close(null); });
+    overlay.addEventListener('input', ()=>{ q('[data-role="error"]').textContent=''; });
+    setTimeout(()=>{ q('[data-role="end"]').focus(); },30);
+  });
+}
+function describeLeaveChange_(oldStart,oldEnd,start,end){
+  const days=(a,b)=>Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000);
+  const parts=[];
+  if(end>oldEnd) parts.push('extended by '+days(oldEnd,end)+' day(s), now ending '+end);
+  if(end<oldEnd) parts.push('shortened by '+days(end,oldEnd)+' day(s), now ending '+end);
+  if(start!==oldStart) parts.push('start moved from '+oldStart+' to '+start);
+  return parts.join('; ');
+}
 async function amendApprovedLeaveReq(id){
   const old=(state.adminLeaveRequests||[]).find(x=>String(x.LeaveID)===String(id));
   if(!old || old.Status!=='Approved'){toast('Refresh leave data before amending.');return;}
-  const start=await promptModal('Revised leave START date (YYYY-MM-DD)',old.StartDate||'');
-  if(start===null)return;
-  const end=await promptModal('Revised leave END date (YYYY-MM-DD)',old.EndDate||'');
-  if(end===null)return;
-  const reason=await promptModal('Reason for amending this approved leave (required)','Dates revised by consultant');
-  if(reason===null)return;
-  const s=String(start).trim(),e=String(end).trim();
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||!/^\d{4}-\d{2}-\d{2}$/.test(e)||!String(reason).trim()){
-    await alertModal('Enter valid YYYY-MM-DD dates and a reason.');return;
-  }
-  if(!(await confirmModal('Supersede the approved leave '+old.StartDate+' to '+old.EndDate+' with '+s+' to '+e+'? Only future rota weeks will be recalculated.')))return;
-  const result=await adminCall('amendApprovedLeave',id,s,e,String(reason).trim());
+  const form=await amendLeaveModal_(old);
+  if(!form)return;
+  const s0=String(old.StartDate||'').slice(0,10), e0=String(old.EndDate||'').slice(0,10);
+  const change=describeLeaveChange_(s0,e0,form.start,form.end);
+  if(!(await confirmModal('Leave for '+consultantName(old.ConsultantID)+': '+change+'. New dates: '+form.start+' to '+form.end+' (was '+s0+' to '+e0+'). The rota is recalculated from the next unstarted week; past weeks and the current week do not change.','Amend leave')))return;
+  const result=await adminCall('amendApprovedLeave',id,form.start,form.end,form.reason);
   toast(result.message);markRotaStale();adminDataLoaded=false;auditLoaded=false;
   await refreshLeaveApprovalData();
 }
 async function cancelApprovedLeaveReq(id){ const note=(await promptModal('Reason for cancelling this approved leave?',''))||''; if(!(await confirmModal('Cancel this approved leave and regenerate the rota from the affected week onward?'))) return; const r=await adminCall('cancelApprovedLeave',id,note); toast(r.message); markRotaStale(); adminDataLoaded=false; auditLoaded=false; await refreshLeaveApprovalData(); }
 function renderImpact(r){
   const cls = r.level==='Conflict'?'bad':r.level==='Warning'?'warn':r.level==='Safe'?'ok':'blue';
-  return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p>${r.preview && r.preview.length ? r.preview.map(p=>`<div class="teamblock"><b>Week ${esc(p.weekNo)}</b><div class="small muted">${esc(p.period)}</div><div class="assignment"><b>Inpatient:</b> ${list(p.Team)}</div>${['TCU','EMCU'].map(role=>p[role]?`<div class="assignment"><b>${esc(role)}:</b> ${list(p[role])}</div>`:'').join('')}${(p.Reserve||[]).length?`<div class="assignment"><b>Previously published duty:</b> ${list(p.Reserve)}</div>`:''}<div class="assignment"><b>OPD:</b> ${list(p.OPD)}</div><div class="assignment"><b>Off-duty:</b> ${list(p['Off-duty'])}</div><div class="assignment"><b>Leave:</b> ${list(p.Leave)}</div><div class="assignment"><b>Inactive:</b> ${list(p.Inactive)}</div></div>`).join('') : ''}${r.conflicts && r.conflicts.length ? `<h3>Warnings / conflicts</h3><ul>${r.conflicts.map(c=>`<li><b>${esc(c.Level)}</b> Week ${esc(c.WeekNo)}: ${esc(c.Message)}</li>`).join('')}</ul>` : ''}</div>`;
+  return `<div class="previewBox"><span class="pill ${cls}">${esc(r.level || r.status)}</span><p>${esc(r.summary || '')}</p>${renderLeaveOutlook(r.outlook)}${r.preview && r.preview.length ? r.preview.map(p=>`<div class="teamblock"><b>Week ${esc(p.weekNo)}</b><div class="small muted">${esc(p.period)}</div><div class="assignment"><b>Inpatient:</b> ${list(p.Team)}</div>${['TCU','EMCU'].map(role=>p[role]?`<div class="assignment"><b>${esc(role)}:</b> ${list(p[role])}</div>`:'').join('')}${(p.Reserve||[]).length?`<div class="assignment"><b>Previously published duty:</b> ${list(p.Reserve)}</div>`:''}<div class="assignment"><b>OPD:</b> ${list(p.OPD)}</div><div class="assignment"><b>Off-duty:</b> ${list(p['Off-duty'])}</div><div class="assignment"><b>Leave:</b> ${list(p.Leave)}</div><div class="assignment"><b>Inactive:</b> ${list(p.Inactive)}</div></div>`).join('') : ''}${r.conflicts && r.conflicts.length ? `<h3>Warnings / conflicts</h3><ul>${r.conflicts.map(c=>`<li><b>${esc(c.Level)}</b> Week ${esc(c.WeekNo)}: ${esc(c.Message)}</li>`).join('')}</ul>` : ''}</div>`;
 }
 
 
